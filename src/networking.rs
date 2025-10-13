@@ -1,7 +1,17 @@
 use tokio::net::{TcpStream, TcpSocket, TcpListener};
-use tokio::io::{AsyncReadExt};
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use std::{error::Error, net::SocketAddr};
 use std::time::Duration;
+use serde::{Serialize, Deserialize};
+
+#[derive(Serialize, Deserialize, Debug)]
+pub struct Init{
+    pub is_sender: bool,
+    pub room: u32
+    // other relevant file data eventually
+    // like pake password hash
+    // file metadata - name, size, etc
+}
 
 
 pub fn create_reusable_socket(local_addr: SocketAddr) -> Result<TcpSocket, Box<dyn Error>> {
@@ -34,7 +44,7 @@ pub async fn attempt_p2p_connection(local_addr: SocketAddr, receiver_addr: Socke
             return Ok(p2p_stream);
         }
 
-        // try connecting to peer (tcp hole punch)
+        // try connecting to peer (tcp hole punch) 
         Ok(p2p_stream) = connect_socket.connect(receiver_addr) => {
             println!("SUCCESS: Connected to peer!");
             return Ok(p2p_stream);
@@ -48,10 +58,13 @@ pub async fn attempt_p2p_connection(local_addr: SocketAddr, receiver_addr: Socke
 }
 
 
-pub async fn establish_connection(relay_addr: &str) -> Result<TcpStream, Box<dyn Error>> {
+pub async fn establish_connection(relay_addr: &str, init: Init) -> Result<TcpStream, Box<dyn Error>> {
     // connect to relay server
     let mut relay_stream: TcpStream = TcpStream::connect(relay_addr).await?;
     println!("Connected to relay server at {}", relay_addr);
+
+    let encoded_init: Vec<u8> = bincode::serialize(&init).unwrap();
+    relay_stream.write_all(&encoded_init).await?;
 
     // get the peer's ip:port
     let mut buffer = vec![0; 1024];

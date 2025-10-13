@@ -1,15 +1,18 @@
 use std::error::Error;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
-use distrans::networking::{establish_connection};
+use tokio::net::TcpStream;
+use distrans::networking::{Init, establish_connection};
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {
     // Connect to the server
     // 100.86.70.21:8443 for relay pi
     let addr = "127.0.0.1:3000";
-    let mut stream = establish_connection(addr).await?;
 
-    // note: need to do PAKE shit here
+    let init:Init = Init {is_sender: false, room: 0};
+    let mut stream: TcpStream = establish_connection(addr, init).await?;
+
+    // note: need to do PAKE shit here - make the channel we communicte through secure
 
     // loop where we continually recieve data + send acks/verification messages
     // note: maybe spawn this as an async tokio task? any benefit to doing that on the reciever?
