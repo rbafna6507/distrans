@@ -93,7 +93,7 @@ pub async fn establish_connection(relay_addr: &str, init: Init) -> Result<TcpStr
             Err(e) => {
                 println!("P2P attempt {} failed: {}", attempt, e);
                 if attempt < 3 {
-                    tokio::time::sleep(Duration::from_secs(2)).await;
+                    tokio::time::sleep(Duration::from_millis(50)).await;
                 }
             }
         }

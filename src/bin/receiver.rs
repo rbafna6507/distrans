@@ -1,7 +1,11 @@
 use std::error::Error;
+use std::vec;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream;
 use distrans::networking::{Init, establish_connection};
+use distrans::bytes::{reconstruct_file};
+use std::path::Path;
+
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {
@@ -16,6 +20,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
     // loop where we continually recieve data + send acks/verification messages
     // note: maybe spawn this as an async tokio task? any benefit to doing that on the reciever?
+    let mut file: Vec<Vec<u8>> = Vec::new();
     loop {
 
         let mut buffer = vec![0; 1024];
@@ -28,14 +33,19 @@ async fn main() -> Result<(), Box<dyn Error>> {
                 break;
             },
             Ok(n) => {
-                let received = String::from_utf8_lossy(&buffer[..n]);
-                println!("Received echo: '{}'", received);
+                println!("n: {}", n);
+                println!("received {:?} from sender", buffer);
+                buffer.truncate(n);
+                file.push(buffer);
 
-                // echo back
-                let echo_string = String::from("Echo: ") + &received.to_string();
-                if let Err(e) = stream.write_all(echo_string.as_bytes()).await {
-                    break;
-                }
+                // let received = String::from_utf8_lossy(&buffer[..n]);
+                // println!("Received echo: '{}'", received);
+
+                // // echo back
+                // let echo_string = String::from("Echo: ") + &received.to_string();
+                // if let Err(e) = stream.write_all(echo_string.as_bytes()).await {
+                //     break;
+                // }
             },
             Err(e) => {
                 eprintln!("Failed to read from server: {}", e);
@@ -44,6 +54,9 @@ async fn main() -> Result<(), Box<dyn Error>> {
         }
     }
 
-    println!("Disconnecting.");
+    let output_path: &Path = Path::new("new_resume.pdf");
+    reconstruct_file(file, output_path).await;
+
+    println!("Disconnecting. Reconstructing file.");
     Ok(())
 }

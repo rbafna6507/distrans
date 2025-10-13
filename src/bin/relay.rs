@@ -1,5 +1,5 @@
 use tokio::net::{TcpListener, TcpStream};
-use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use tokio::io::{copy_bidirectional, AsyncReadExt, AsyncWriteExt};
 use tokio::sync::mpsc::{self, Receiver, Sender};
 use core::panic;
 use std::net::SocketAddr;
@@ -116,36 +116,53 @@ impl ConnectionManager {
             // this uses the relay as long as the connection is still alive (eg. sender hasn't disconnected)
             // instead of echoing messages immediately, need to do PAKE
             loop {
-                match sender.stream.read(&mut buffer).await {
-                    Ok(0) => {
-                        println!("Sender {} disconnected", sender.addr);
-                        break;
-                    },
-                    // do PAKE here - this should do the exchange of messaages
-                    // at the end of pake
-                    Ok(n) => {
-                        let message = String::from_utf8_lossy(&buffer[..n]);
-                        println!("Received from {}: {}. Sending to {}", sender.addr, message, receiver.addr);
-
-                        // send message from sender to receiver
-                        if let Err(e) = receiver.stream.write_all(&buffer[..n]).await {
-                            eprintln!("Failed to write to receiver {}: {}", receiver.addr, e);
-                            break;
-                        }
-
-                        // echo success back to sender
-                        let echo_message = format!("Message delivered to {}", receiver.addr);
-                        if let Err(e) = sender.stream.write_all(echo_message.as_bytes()).await {
-                            eprintln!("Failed to write to sender {}: {}", sender.addr, e);
-                            break;
-                        }
+                match copy_bidirectional(&mut sender.stream, &mut receiver.stream).await {
+                    Ok((bytes_sent, bytes_received)) => {
+                        println!(
+                            "Connection between {} and {} closed. Sent {} bytes, received {} bytes.",
+                            sender.addr, receiver.addr, bytes_sent, bytes_received
+                        );
+                        return;
                     },
                     Err(e) => {
-                        eprintln!("Error reading from sender {}: {}", sender.addr, e);
-                        break;
+                        eprintln!(
+                            "Error relaying data between {} and {}: {}",
+                            sender.addr, receiver.addr, e
+                        );
+                        return;
                     }
                 }
-        }
+
+                // match sender.stream.read(&mut buffer).await {
+                //     Ok(0) => {
+                //         println!("Sender {} disconnected", sender.addr);
+                //         break;
+                //     },
+                //     // do PAKE here - this should do the exchange of messaages
+                //     // at the end of pake
+                //     Ok(n) => {
+                //         let message = String::from_utf8_lossy(&buffer[..n]);
+                //         println!("Received from {}: {}. Sending to {}", sender.addr, message, receiver.addr);
+
+                //         // send message from sender to receiver
+                //         if let Err(e) = receiver.stream.write_all(&buffer[..n]).await {
+                //             eprintln!("Failed to write to receiver {}: {}", receiver.addr, e);
+                //             break;
+                //         }
+
+                //         // echo success back to sender
+                //         let echo_message = format!("Message delivered to {}", receiver.addr);
+                //         if let Err(e) = sender.stream.write_all(echo_message.as_bytes()).await {
+                //             eprintln!("Failed to write to sender {}: {}", sender.addr, e);
+                //             break;
+                //         }
+                //     },
+                //     Err(e) => {
+                //         eprintln!("Error reading from sender {}: {}", sender.addr, e);
+                //         break;
+                //     }
+                // }
+            }
         
         println!("Relay session ended for {} <-> {}", sender.addr, receiver.addr);
 
