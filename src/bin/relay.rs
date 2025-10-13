@@ -31,14 +31,10 @@ struct AttemptP2P {
     room: u32,
 }
 
-struct ConnectWithRelay {
-    room: u32,
-}
 
 enum Message {
     NewConnection(NewConnection),
     AttemptP2P(AttemptP2P),
-    ConnectWithRelay(ConnectWithRelay),
 }
 
 struct Room {
@@ -69,7 +65,10 @@ impl ConnectionManager {
             self.rooms.insert(desired_room, new_room);
             let sender_addr = self.rooms.get(&desired_room).unwrap().sender.addr;
             println!("Created room {} and moved sender at addr {} to it", desired_room, sender_addr)
-        } else {
+        } else if is_sender && self.rooms.contains_key(&desired_room) {
+            println!("Room already exists with a sender.")
+        }
+        else {
             let room = self.rooms.get_mut(&desired_room).ok_or("Room does not exist")?;
             room.receiver = Some(message.connection);
             let receiver_addr = room.receiver.as_ref().unwrap().addr;
@@ -117,13 +116,20 @@ impl ConnectionManager {
             // instead of echoing messages immediately, need to do PAKE
             loop {
                 match copy_bidirectional(&mut sender.stream, &mut receiver.stream).await {
-                    Ok((bytes_sent, bytes_received)) => {
+                    Ok((0, 0)) => {
                         println!(
                             "Connection between {} and {} closed. Sent {} bytes, received {} bytes.",
-                            sender.addr, receiver.addr, bytes_sent, bytes_received
+                            sender.addr, receiver.addr, 0, 0
                         );
+                        println!("Relay session ended for {} <-> {}", sender.addr, receiver.addr);
                         return;
                     },
+                    Ok((bytes_sent, bytes_received)) => {
+                        println!(
+                            "Sent {} bytes, received {} bytes.",
+                            bytes_sent, bytes_received
+                        );
+                    }
                     Err(e) => {
                         eprintln!(
                             "Error relaying data between {} and {}: {}",
@@ -132,57 +138,11 @@ impl ConnectionManager {
                         return;
                     }
                 }
-
-                // match sender.stream.read(&mut buffer).await {
-                //     Ok(0) => {
-                //         println!("Sender {} disconnected", sender.addr);
-                //         break;
-                //     },
-                //     // do PAKE here - this should do the exchange of messaages
-                //     // at the end of pake
-                //     Ok(n) => {
-                //         let message = String::from_utf8_lossy(&buffer[..n]);
-                //         println!("Received from {}: {}. Sending to {}", sender.addr, message, receiver.addr);
-
-                //         // send message from sender to receiver
-                //         if let Err(e) = receiver.stream.write_all(&buffer[..n]).await {
-                //             eprintln!("Failed to write to receiver {}: {}", receiver.addr, e);
-                //             break;
-                //         }
-
-                //         // echo success back to sender
-                //         let echo_message = format!("Message delivered to {}", receiver.addr);
-                //         if let Err(e) = sender.stream.write_all(echo_message.as_bytes()).await {
-                //             eprintln!("Failed to write to sender {}: {}", sender.addr, e);
-                //             break;
-                //         }
-                //     },
-                //     Err(e) => {
-                //         eprintln!("Error reading from sender {}: {}", sender.addr, e);
-                //         break;
-                //     }
-                // }
             }
-        
-        println!("Relay session ended for {} <-> {}", sender.addr, receiver.addr);
-
         }
     }
 
 }
-
-
-// how does this need to work?
-
-// manager task running constantly in background
-// send messages to it - it kicks off the necessary tasks
-// eg. creating/assigning rooms
-// manager task will own room data - sender/receiver sockets
-// kick off pake
-// kick off file transfer
-
-// when we get a new connection - kick off a tokio task that
-// submits the connection and the data to the manager task
 
 
 
@@ -218,15 +178,10 @@ async fn relay_manager(mut manager: ConnectionManager) {
             match message {
                 Message::NewConnection(message) => {
                     // process_request
-                    println!("New Connection Received, creating/assigning room");
                     let _ = manager.create_or_assign_room(message).await;
                 },
                 Message::AttemptP2P(message) => {
-                    println!("P2P request received, attempting P2P Connection");
                     let _ = manager.attempt_p2p(message.room).await;
-                },
-                Message::ConnectWithRelay(message) => {
-                    unimplemented!()
                 }
             }
         }
@@ -254,7 +209,6 @@ async fn relay_new_connection(mut stream: TcpStream, addr: SocketAddr, manager_c
     };
 
     manager_channel.send(Message::NewConnection(message)).await;
-    println!("Message sent to channel");
 }
 
 

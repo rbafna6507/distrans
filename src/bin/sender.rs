@@ -1,11 +1,12 @@
 use std::error::Error;
 use tokio::net::tcp::{OwnedReadHalf, OwnedWriteHalf};
 use tokio::net::{TcpStream};
+use tokio::sync::Semaphore;
+use std::sync::Arc;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use distrans::networking::{Init, establish_connection};
-use distrans::bytes::{chunk_file};
+use distrans::bytes::{chunk_file, generate_shared_key};
 use std::path::Path;
-
 
 
 #[tokio::main]
@@ -21,9 +22,11 @@ async fn main() -> Result<(), Box<dyn Error>> {
         std::io::stdin().read_line(&mut input).map(|_| input.trim().to_string())
         }).await?;
 
+    let shared_key = generate_shared_key();
+    println!("shared key: {}", shared_key);
+
     let filename = input?;
 
-    // Check if file exists before processing
     if !Path::new(&filename).exists() {
         return Err(format!("File '{}' not found in current directory: {:?}", 
                         filename, std::env::current_dir()?).into());
@@ -37,19 +40,30 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
     let (mut read_half, mut write_half) = stream.into_split();
 
-    // need logic to 'generate' a random + secure room code
-    // will also need to get file info - name and size to send during init
-    
-    let mut buffer = vec![0; 1024];
+    // perform PAKE here - do i need PAKEMessage?
 
+    // will also need to get file info - name and file size info - send in a transferInit Message
+
+    // transferMessage - just contains the data we're sending (and optionally the chunk idx if we want to multithread in the future)
+    
     tokio::spawn(read_task(read_half));
-    tokio::spawn(write_task(write_half, chunks?)).await;
+    tokio::spawn(write_task(write_half, chunks?)).await?;
     
     println!("Disconnecting.");
     Ok(())
 }
 
 
+
+
+async fn write_task(mut write_socket: OwnedWriteHalf, chunks: Vec<Vec<u8>>) {
+
+    for chunk in chunks {
+        println!("sending {:?} to receiver", chunk);
+        let _ = write_socket.write_all(&chunk).await;
+    }
+    
+}
 
 async fn read_task(mut read_socket: OwnedReadHalf) {
 
@@ -72,46 +86,4 @@ async fn read_task(mut read_socket: OwnedReadHalf) {
         }
 
     }
-}
-
-async fn write_task(mut write_socket: OwnedWriteHalf, chunks: Vec<Vec<u8>>) {
-
-    for chunk in chunks {
-        println!("sending {:?} to receiver", chunk);
-        let _ = write_socket.write_all(&chunk).await;
-    }
-
-    // let _ = write_socket.shutdown().await;
-
-
-    // loop {
-
-    
-        
-    //     let mut buffer = vec![0;1024];
-
-    //     let input = tokio::task::spawn_blocking(|| {
-    //         println!("Enter a message to send (or 'exit' to quit):");
-    //         let mut input = String::new();
-    //         std::io::stdin().read_line(&mut input).map(|_| input)
-    //         }).await;
-
-
-    //     match input {
-    //         Ok(Ok(input)) => {
-    //             let message = input.trim();
-    //             if message == "exit" {
-    //                 return;
-    //             }
-    //             if !message.is_empty() {
-    //                 let _ = write_socket.write_all(message.as_bytes()).await;
-    //                 println!("Sent: '{}'", message);
-    //             }
-    //         }
-    //         _ => {
-    //             eprintln!("Failed to read user input");
-    //         }
-    //     }
-    // }
-    
 }
