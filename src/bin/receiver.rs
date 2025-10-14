@@ -1,12 +1,11 @@
 use std::error::Error;
 use std::vec;
-use bincode::de::read;
 use distrans::cryptography::{decrypt_chunk, NONCE_SIZE, EncryptionError};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::tcp::OwnedReadHalf;
 use tokio::net::TcpStream;
 use distrans::networking::{establish_connection, perform_pake, Init};
-use distrans::bytes::{get_shared_key, reconstruct_file};
+use distrans::bytes::{decompress_chunk, get_shared_key, reconstruct_file};
 use std::path::Path;
 
 
@@ -63,6 +62,8 @@ async fn read_task(mut read_half: OwnedReadHalf, encryption_key:[u8; 32]) -> Res
             Ok(n) => {
                 println!("received {} bytes from sender", n);
                 buffer.truncate(n);
+
+                // let decompressed = decompress_chunk(&buffer).await;
 
                 // Generate the nonce for this chunk
                 let mut nonce_bytes = [0u8; NONCE_SIZE];

@@ -3,16 +3,15 @@ use std::fs::{self, File, OpenOptions};
 use std::path::Path;
 use rand::Rng;
 
-
 // needs compression
 // and PAKE
 // needs generate_phrase() function to help generate a room
 
 pub fn generate_shared_key() -> u32 {
-    let mut rng = rand::thread_rng();
+    let mut rng = rand::rng();
 
     // Generate a random number between 100,000 (inclusive) and 999,999 (inclusive)
-    let random_number: u32 = rng.gen_range(100_000..=999_999);
+    let random_number: u32 = rng.random_range(100_000..=999_999);
     random_number
 }
 
@@ -39,6 +38,15 @@ pub fn get_shared_key() -> u32 {
         }
     };
 }
+
+pub async fn compress_chunk(chunk: &Vec<u8>) -> Vec<u8> {
+    zstd::encode_all(&chunk[..], 3).expect("Failed to compress chunk")
+}
+
+pub async fn decompress_chunk(chunk: &Vec<u8>) -> Vec<u8> {
+    zstd::decode_all(&chunk[..]).expect("Failed to decompress chunk")
+}
+
 
 pub async fn chunk_file(file_path: String, chunk_size: usize) -> io::Result<Vec<Vec<u8>>> {
     println!("Attempting to read file: {}", file_path);

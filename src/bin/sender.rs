@@ -6,7 +6,7 @@ use tokio::sync::Semaphore;
 use std::sync::Arc;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use distrans::networking::{Init, establish_connection, perform_pake};
-use distrans::bytes::{chunk_file, generate_shared_key};
+use distrans::bytes::{chunk_file, generate_shared_key, compress_chunk};
 use distrans::cryptography::{encrypt_chunk, NONCE_SIZE};
 use std::path::Path;
 use std::fs::{self, File};
@@ -104,7 +104,7 @@ async fn new_write_task(mut write_socket: OwnedWriteHalf, mut file: File, key:[u
         buffer.truncate(bytes_read);
 
         // compress buffer
-
+        // let compressed = compress_chunk(&buffer).await;
 
         // encrypt buffer
         let mut nonce_bytes = [0u8; NONCE_SIZE];
