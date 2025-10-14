@@ -6,13 +6,20 @@ use std::time::Duration;
 use serde::{Serialize, Deserialize};
 use crate::cryptography::{generate_initial_pake_message, create_session_id, derive_session_key, KEY_SIZE};
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct Init{
     pub is_sender: bool,
-    pub room: u32
+    pub room: u32,
+    pub local_addr: Option<SocketAddr>,
     // other relevant file data eventually
     // like pake password hash
     // file metadata - name, size, etc
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct PeerAddresses {
+    pub external_addr: SocketAddr,
+    pub local_addr: Option<SocketAddr>,
 }
 
 
@@ -53,41 +60,46 @@ pub async fn attempt_p2p_connection(local_addr: SocketAddr, receiver_addr: Socke
         }
 
         // timeout after 50ms, keep the relay stream
-        _ = tokio::time::sleep(Duration::from_millis(50)) => {
+        _ = tokio::time::sleep(Duration::from_millis(150)) => {
             return Err("Could not create P2P connection".into())
         }
     };
 }
 
 
-pub async fn establish_connection(relay_addr: &str, init: Init) -> Result<TcpStream, Box<dyn Error>> {
+pub async fn establish_connection(relay_addr: &str, mut init: Init) -> Result<TcpStream, Box<dyn Error>> {
     // connect to relay server
     let mut relay_stream: TcpStream = TcpStream::connect(relay_addr).await?;
     println!("Connected to relay server at {}", relay_addr);
 
+    // Capture our local address before sending to relay
+    let local_addr = relay_stream.local_addr()?;
+    init.local_addr = Some(local_addr);
+
     let encoded_init: Vec<u8> = bincode::serialize(&init).unwrap();
     relay_stream.write_all(&encoded_init).await?;
 
-    // get the peer's ip:port
+    // Receive the peer's addresses (both external and local)
     let mut buffer = vec![0; 1024];
-    let receiver_addr = match relay_stream.read(&mut buffer).await {
+    let peer_addresses = match relay_stream.read(&mut buffer).await {
         Ok(0) => return Err("Relay server closed connection".into()),
         Ok(n) => {
-            let addr: SocketAddr = serde_json::from_slice(&buffer[..n])?;
-            println!("Received peer address: {}", addr);
-            addr
+            let addresses: PeerAddresses = serde_json::from_slice(&buffer[..n])?;
+            println!("Received peer addresses - External: {}, Local: {:?}", 
+                     addresses.external_addr, addresses.local_addr);
+            addresses
         }
         Err(e) => return Err(e.into()),
     };
 
-    // keep track of the current local address we connected to the relay with
-    let local_addr = relay_stream.local_addr()?;
+    // Determine which address to use for P2P connection
+    let target_addr = determine_target_address(&peer_addresses, &local_addr)?;
 
-    // three attempts at connecting to the peer directly
+    // Three attempts at connecting to the peer directly
     for attempt in 1..=3 {
         println!("P2P attempt {} of 3", attempt);
         
-        match attempt_p2p_connection(local_addr, receiver_addr).await {
+        match attempt_p2p_connection(local_addr, target_addr).await {
             Ok(p2p_stream) => {
                 println!("P2P connection established, closing relay");
                 return Ok(p2p_stream);
@@ -95,7 +107,7 @@ pub async fn establish_connection(relay_addr: &str, init: Init) -> Result<TcpStr
             Err(e) => {
                 println!("P2P attempt {} failed: {}", attempt, e);
                 if attempt < 3 {
-                    tokio::time::sleep(Duration::from_millis(50)).await;
+                    tokio::time::sleep(Duration::from_millis(150)).await;
                 }
             }
         }
@@ -104,6 +116,42 @@ pub async fn establish_connection(relay_addr: &str, init: Init) -> Result<TcpStr
     // if p2p failed, fallback to relay
     println!("P2P failed, using relay connection");
     Ok(relay_stream)
+}
+
+fn determine_target_address(
+    peer_addresses: &PeerAddresses,
+    my_local_addr: &SocketAddr,
+) -> Result<SocketAddr, Box<dyn Error>> {
+    let my_local_ip = my_local_addr.ip();
+    
+    // Check if we have the peer's local address
+    if let Some(peer_local_addr) = peer_addresses.local_addr {
+        let peer_local_ip = peer_local_addr.ip();
+        
+        // Check if we're on the same local network by comparing IP prefixes
+        let same_network = match (my_local_ip, peer_local_ip) {
+            (std::net::IpAddr::V4(my_ip), std::net::IpAddr::V4(peer_ip)) => {
+                // Check if both IPs are in the same subnet (simplified check)
+                let my_octets = my_ip.octets();
+                let peer_octets = peer_ip.octets();
+                
+                // Same /24 network (first 3 octets match)
+                my_octets[0] == peer_octets[0] 
+                    && my_octets[1] == peer_octets[1] 
+                    && my_octets[2] == peer_octets[2]
+            }
+            _ => false,
+        };
+        
+        if same_network {
+            println!("Same local network detected, using peer's local address: {}", peer_local_addr);
+            return Ok(peer_local_addr);
+        }
+    }
+    
+    // Different networks or no local address available, use external address
+    println!("Using peer's external address for P2P: {}", peer_addresses.external_addr);
+    Ok(peer_addresses.external_addr)
 }
 
 

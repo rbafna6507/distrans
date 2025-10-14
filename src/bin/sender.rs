@@ -37,8 +37,9 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
     // let chunks = tokio::spawn(chunk_file(filename, 1024)).await?;
 
-    let init:Init = Init {is_sender: true, room: 0};
-    let addr = "127.0.0.1:3000";
+    let init:Init = Init {is_sender: true, room: 0, local_addr: None};
+    let addr = "45.55.102.56:8080";
+    // let addr = "127.0.0.1:3000";
     let mut stream: TcpStream = establish_connection(addr, init).await?;
 
     let (mut read_half, mut write_half) = stream.into_split();

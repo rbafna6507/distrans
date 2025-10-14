@@ -13,13 +13,13 @@ use std::path::Path;
 async fn main() -> Result<(), Box<dyn Error>> {
     // Connect to the server
     // 100.86.70.21:8443 for relay pi
-    let addr = "127.0.0.1:3000";
+    let addr = "45.55.102.56:8080";
     
     // Get 6-digit room number from user
     let shared_key = get_shared_key();
 
-    let init:Init = Init {is_sender: false, room: 0};
-    let mut stream: TcpStream = establish_connection(addr, init).await?;
+    let init:Init = Init {is_sender: false, room: 0, local_addr: None};
+    let stream: TcpStream = establish_connection(addr, init).await?;
     let (mut read_half, mut write_half) = stream.into_split();
 
     // note: need to do PAKE shit here - make the channel we communicte through secure

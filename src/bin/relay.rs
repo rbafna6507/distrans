@@ -1,25 +1,32 @@
 use tokio::net::{TcpListener, TcpStream};
 use tokio::io::{copy_bidirectional, AsyncReadExt, AsyncWriteExt};
 use tokio::sync::mpsc::{self, Receiver, Sender};
-use core::panic;
 use std::net::SocketAddr;
 use std::collections::HashMap;
 use std::error::Error;
 use serde::{Serialize, Deserialize};
 
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 struct Init{
     is_sender: bool,
-    room: u32
+    room: u32,
+    local_addr: Option<SocketAddr>,
     // other relevant file data eventually
     // like pake password hash
     // file metadata - name, size, etc
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+struct PeerAddresses {
+    external_addr: SocketAddr,
+    local_addr: Option<SocketAddr>,
 }
 // must be mutable to read/write stream
 struct Connection {
     stream: TcpStream,
     addr: SocketAddr,
+    local_addr: Option<SocketAddr>,
 }
 
 struct NewConnection {
@@ -74,11 +81,10 @@ impl ConnectionManager {
             let receiver_addr = room.receiver.as_ref().unwrap().addr;
             println!("Added receiver to room {} with addr {}", desired_room, receiver_addr);
 
-            if let Some(receiver) = &room.receiver {
+            if room.receiver.is_some() {
                 // if sender and receiver are both in the room
                 // send a messsage to relayManager to kick off p2p attemp
                 self.sender_channel.send(Message::AttemptP2P(AttemptP2P { room: desired_room })).await?;
-                
             }
         }
 
@@ -91,25 +97,42 @@ impl ConnectionManager {
 
 
 
-    pub async fn attempt_p2p(&mut self, room: u32) {
-        if let Some(room) = self.rooms.remove(&room) {
+    pub async fn attempt_p2p(&mut self, room_id: u32) {
+        if let Some(room) = self.rooms.remove(&room_id) {
             println!("Room exists, attempting peer2peer connection");
-
-            let mut buffer = vec![0; 1024];
             
             let mut sender = room.sender;
             let mut receiver = room.receiver.unwrap();
 
-            let receiver_addr_json = serde_json::to_vec(&receiver.addr).expect("Failed to serialize sender address to bytes");
-            let sender_addr_json = serde_json::to_vec(&sender.addr).expect("Failed to serialize sender address");
+            // Create PeerAddresses structs with both external and local addresses
+            let receiver_addresses = PeerAddresses {
+                external_addr: receiver.addr,
+                local_addr: receiver.local_addr,
+            };
+            
+            let sender_addresses = PeerAddresses {
+                external_addr: sender.addr,
+                local_addr: sender.local_addr,
+            };
 
+            println!("Sending to sender - Receiver external: {}, local: {:?}", 
+                     receiver_addresses.external_addr, receiver_addresses.local_addr);
+            println!("Sending to receiver - Sender external: {}, local: {:?}", 
+                     sender_addresses.external_addr, sender_addresses.local_addr);
+
+            let receiver_addr_json = serde_json::to_vec(&receiver_addresses)
+                .expect("Failed to serialize receiver addresses");
+            let sender_addr_json = serde_json::to_vec(&sender_addresses)
+                .expect("Failed to serialize sender addresses");
 
             if let Err(e) = sender.stream.write_all(&receiver_addr_json).await {
-                eprintln!("Failed to send receiver address to sender: {}", e);
+                eprintln!("Failed to send receiver addresses to sender: {}", e);
+                return;
             }
 
             if let Err(e) = receiver.stream.write_all(&sender_addr_json).await {
-                eprintln!("Failed to send sender address to receiver: {}", e);
+                eprintln!("Failed to send sender addresses to receiver: {}", e);
+                return;
             }
 
             // this uses the relay as long as the connection is still alive (eg. sender hasn't disconnected)
@@ -148,13 +171,13 @@ impl ConnectionManager {
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {
+    let listener = TcpListener::bind("0.0.0.0:3000").await?;
+    println!("Server listening on 0.0.0.0:3000");
+
     // let listener = TcpListener::bind("0.0.0.0:8080").await?;
     // println!("Server listening on 0.0.0.0:8080");
 
-    let listener = TcpListener::bind("127.0.0.1:3000").await?;
-    println!("Server listening on 127.0.0.1:3000");
-
-    let (sender_channel, mut receiver_channel) = mpsc::channel::<Message>(100);
+    let (sender_channel, receiver_channel) = mpsc::channel::<Message>(100);
     let manager = ConnectionManager::new(sender_channel.clone(), receiver_channel);
     
     tokio::spawn(relay_manager(manager));
@@ -194,21 +217,37 @@ async fn relay_manager(mut manager: ConnectionManager) {
 async fn relay_new_connection(mut stream: TcpStream, addr: SocketAddr, manager_channel: Sender<Message>) {
     // make buffer to read in the data
     let mut buffer = vec![0; 1024];
-    let mut message: NewConnection;
     
     // deserialize 'init' message from the stream
-    match stream.read(&mut buffer).await {
-        Ok(0) => panic!("Client disconnected from server during initial processing"),
-        Ok(n) => {
-            let init: Init = bincode::deserialize(&buffer[..]).unwrap();
-            println!("{:?}", init);
-            message = NewConnection { connection: Connection { stream: stream, addr: addr }, meta: (init) }
-
+    let message = match stream.read(&mut buffer).await {
+        Ok(0) => {
+            eprintln!("Client disconnected from server during initial processing");
+            return;
         }
-        Err(e) => panic!("Error encountered when reading from initial connection stream: {}", e),
+        Ok(_n) => {
+            let init: Init = bincode::deserialize(&buffer[..]).unwrap();
+            println!("Received init: {:?}", init);
+            
+            let local_addr = init.local_addr;
+            
+            NewConnection { 
+                connection: Connection { 
+                    stream, 
+                    addr,
+                    local_addr,
+                }, 
+                meta: init 
+            }
+        }
+        Err(e) => {
+            eprintln!("Error encountered when reading from initial connection stream: {}", e);
+            return;
+        }
     };
 
-    manager_channel.send(Message::NewConnection(message)).await;
+    if let Err(e) = manager_channel.send(Message::NewConnection(message)).await {
+        eprintln!("Failed to send message to manager: {}", e);
+    }
 }
 
 
