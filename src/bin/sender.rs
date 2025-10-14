@@ -1,17 +1,15 @@
+use std::clone;
 use std::error::Error;
 use std::io::Read;
 use tokio::net::tcp::{OwnedReadHalf, OwnedWriteHalf};
 use tokio::net::{TcpStream};
-use tokio::sync::Semaphore;
-use std::sync::Arc;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use distrans::networking::{Init, establish_connection, perform_pake};
-use distrans::bytes::{chunk_file, generate_shared_key};
-use distrans::cryptography::{encrypt_chunk, NONCE_SIZE};
-use std::path::Path;
-use std::fs::{self, File};
+use distrans::bytes::{chunk_and_encrypt_file, chunk_file, generate_shared_key, get_filename};
+use distrans::cryptography::{encrypt_chunk};
+use std::fs::{File};
 
-const CHUNK_SIZE: usize = 1024;
+use distrans::{CHUNK_SIZE, NONCE_SIZE, RELAY_ADDR};
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {
@@ -19,35 +17,23 @@ async fn main() -> Result<(), Box<dyn Error>> {
     // Connect to the server
     // 100.86.70.21:8443 for relay pi
 
-    let input = tokio::task::spawn_blocking(|| {
-        println!("Enter filename to send:");
-        let mut input = String::new();
-        std::io::stdin().read_line(&mut input).map(|_| input.trim().to_string())
-        }).await?;
+    let filename = get_filename()?;
 
     let shared_key = generate_shared_key();
     println!("shared key: {}", shared_key);
 
-    let filename = input?;
-
-    if !Path::new(&filename).exists() {
-        return Err(format!("File '{}' not found in current directory: {:?}", 
-                        filename, std::env::current_dir()?).into());
-    }
-
-    // let chunks = tokio::spawn(chunk_file(filename, 1024)).await?;
 
     let init:Init = Init {is_sender: true, room: 0, local_addr: None};
-    let addr = "45.55.102.56:8080";
-    // let addr = "127.0.0.1:3000";
-    let mut stream: TcpStream = establish_connection(addr, init).await?;
-
+    let mut stream: TcpStream = establish_connection(RELAY_ADDR, init).await?;
     let (mut read_half, mut write_half) = stream.into_split();
 
     // perform PAKE here - do i need PAKEMessage?
     // pake function
     let (encryption_key, write_half, read_half) =
         perform_pake(write_half, read_half, shared_key).await?;
+
+    // attempt to encryp the file
+    let encrypted_chunks = chunk_and_encrypt_file(&filename, encryption_key).await?;
 
     // will also need to get file info - name and file size info - send in a transferInit Message
     // init transfer message - metadata of file: filename, size, etc
@@ -70,7 +56,10 @@ async fn main() -> Result<(), Box<dyn Error>> {
     // wait for an ack with the same chunk id
     // tokio::spawn(write_task(write_half, chunks?)).await?;
     let mut file = File::open(filename).unwrap();
-    tokio::spawn(new_write_task(write_half, file, encryption_key)).await?;
+    let total_chunks = encrypted_chunks.clone();
+    // tokio::spawn(new_write_task(write_half, file, encryption_key)).await?;
+    tokio::spawn(write_task(write_half, encrypted_chunks)).await?;
+    println!("sent {} chunks to receiver", total_chunks.len());
     
     println!("Disconnecting.");
     Ok(())
@@ -80,7 +69,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
 async fn write_task(mut write_socket: OwnedWriteHalf, chunks: Vec<Vec<u8>>) {
 
     for chunk in chunks {
-        println!("sending {:?} to receiver", chunk);
+        println!("sending {:?} bytes to receiver", chunk.len());
         let _ = write_socket.write_all(&chunk).await;
     }
     

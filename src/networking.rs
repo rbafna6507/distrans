@@ -4,7 +4,8 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use std::{error::Error, net::SocketAddr};
 use std::time::Duration;
 use serde::{Serialize, Deserialize};
-use crate::cryptography::{generate_initial_pake_message, create_session_id, derive_session_key, KEY_SIZE};
+use crate::cryptography::{generate_initial_pake_message, create_session_id, derive_session_key};
+use crate::KEY_SIZE;
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct Init{
@@ -124,14 +125,14 @@ fn determine_target_address(
 ) -> Result<SocketAddr, Box<dyn Error>> {
     let my_local_ip = my_local_addr.ip();
     
-    // Check if we have the peer's local address
+    // if we have the peer's local address
     if let Some(peer_local_addr) = peer_addresses.local_addr {
         let peer_local_ip = peer_local_addr.ip();
         
-        // Check if we're on the same local network by comparing IP prefixes
+        // compare IPs to determine if we're on the same network
         let same_network = match (my_local_ip, peer_local_ip) {
             (std::net::IpAddr::V4(my_ip), std::net::IpAddr::V4(peer_ip)) => {
-                // Check if both IPs are in the same subnet (simplified check)
+                // easy check to see if we're on the same network
                 let my_octets = my_ip.octets();
                 let peer_octets = peer_ip.octets();
                 
@@ -143,13 +144,14 @@ fn determine_target_address(
             _ => false,
         };
         
+        // if sender/receiver on same network, use local addresses
         if same_network {
             println!("Same local network detected, using peer's local address: {}", peer_local_addr);
             return Ok(peer_local_addr);
         }
     }
     
-    // Different networks or no local address available, use external address
+    // different networks or no local address available, use external address
     println!("Using peer's external address for P2P: {}", peer_addresses.external_addr);
     Ok(peer_addresses.external_addr)
 }

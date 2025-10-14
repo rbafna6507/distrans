@@ -1,15 +1,13 @@
-use spake2::{Ed25519Group, Identity, Password, Spake2, Error};
+use spake2::{Ed25519Group, Identity, Password, Spake2};
 use sha2::{Digest, Sha256};
 use hkdf::Hkdf;
 use chacha20poly1305::{
-    aead::{Aead, KeyInit, OsRng},
+    aead::{Aead, KeyInit},
     ChaCha20Poly1305, Nonce,
 };
 use chacha20poly1305::aead::Error as AeadError;
 pub use chacha20poly1305::aead::Error as EncryptionError;
-
-pub const KEY_SIZE: usize = 32;
-pub const NONCE_SIZE: usize = 12;
+use crate::{KEY_SIZE, NONCE_SIZE};
 
 pub fn create_session_id(shared_room_key: u32) -> Identity {
     let mut hasher = Sha256::default();

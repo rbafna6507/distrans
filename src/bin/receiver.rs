@@ -1,34 +1,29 @@
 use std::error::Error;
 use std::vec;
-use distrans::cryptography::{decrypt_chunk, NONCE_SIZE, EncryptionError};
+use distrans::cryptography::{decrypt_chunk, EncryptionError};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::tcp::OwnedReadHalf;
 use tokio::net::TcpStream;
 use distrans::networking::{establish_connection, perform_pake, Init};
 use distrans::bytes::{get_shared_key, reconstruct_file};
+use distrans::{CHUNK_SIZE, RELAY_ADDR, NONCE_SIZE};
 use std::path::Path;
 
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {
-    // Connect to the server
-    // 100.86.70.21:8443 for relay pi
-    let addr = "45.55.102.56:8080";
-    
     // Get 6-digit room number from user
     let shared_key = get_shared_key();
 
     let init:Init = Init {is_sender: false, room: 0, local_addr: None};
-    let stream: TcpStream = establish_connection(addr, init).await?;
+    let stream: TcpStream = establish_connection(RELAY_ADDR, init).await?;
+
     let (mut read_half, mut write_half) = stream.into_split();
 
-    // note: need to do PAKE shit here - make the channel we communicte through secure
+
     let (encryption_key, mut write_half, mut read_half) =
         perform_pake(write_half, read_half, shared_key).await?;
 
-
-    // loop where we continually recieve data + send acks/verification messages
-    // note: maybe spawn this as an async tokio task? any benefit to doing that on the reciever?
 
     let file = tokio::spawn(read_task(read_half, encryption_key)).await?.unwrap();
 
@@ -50,7 +45,7 @@ async fn read_task(mut read_half: OwnedReadHalf, encryption_key:[u8; 32]) -> Res
 
     loop {
 
-        let mut buffer = vec![0; 1024];
+        let mut buffer = vec![0; CHUNK_SIZE];
 
         // Read the server's echo
         match read_half.read(&mut buffer).await {

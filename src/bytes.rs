@@ -1,5 +1,7 @@
 use std::io::{self, Read, Write, BufWriter};
+use std::error::Error;
 use std::fs::{self, File, OpenOptions};
+use crate::{NONCE_SIZE, CHUNK_SIZE, ENCRYPTION_OVERHEAD, cryptography::{encrypt_chunk}};
 use std::path::Path;
 use rand::Rng;
 
@@ -92,5 +94,53 @@ pub async fn reconstruct_file(chunks: Vec<Vec<u8>>, output_path: &Path) -> io::R
 
     println!("File successfully reconstructed at {:?}", output_path);
     Ok(())
+}
+
+pub async fn chunk_and_encrypt_file(file_path: &String, encryption_key: [u8; 32]) -> Result<Vec<Vec<u8>>, Box<dyn Error>> {
+    if !Path::new(&file_path).exists() {
+        return Err(format!("File '{}' not found in current directory: {:?}", 
+                        file_path, std::env::current_dir()?).into());
+    }
+
+    let mut file = File::open(file_path)?;
+    let mut chunk_index: u64 = 0;
+
+    // could compress the file here??
+
+    const PLAINTEXT_CHUNK_SIZE: usize = CHUNK_SIZE - ENCRYPTION_OVERHEAD;
+
+    let mut chunks: Vec<Vec<u8>> = Vec::new();
+
+    loop {
+        let mut buffer = vec![0; PLAINTEXT_CHUNK_SIZE]; 
+        let bytes_read = file.read(&mut buffer).unwrap();
+
+        if bytes_read == 0 {
+            // End of file reached
+            break;
+        }
+
+        // If fewer bytes were read than the chunk size, truncate the buffer
+        buffer.truncate(bytes_read);
+
+        // encrypt buffer
+        let mut nonce_bytes = [0u8; NONCE_SIZE];
+        nonce_bytes[..8].copy_from_slice(&chunk_index.to_le_bytes());
+        let encrypted = encrypt_chunk(&encryption_key, &buffer, &nonce_bytes).unwrap();
+
+        chunks.push(encrypted);
+        chunk_index += 1
+    }
+
+    Ok(chunks)
+}
+
+
+pub fn get_filename() -> Result<String, Box<dyn Error>> {
+    println!("Enter filename to send:");
+    let mut input = String::new();
+    input = std::io::stdin().read_line(&mut input).map(|_| input.trim().to_string())?;
+
+    Ok(input)
 }
 
