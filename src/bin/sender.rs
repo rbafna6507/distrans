@@ -6,7 +6,7 @@ use tokio::sync::Semaphore;
 use std::sync::Arc;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use distrans::networking::{Init, establish_connection, perform_pake};
-use distrans::bytes::{chunk_file, generate_shared_key, compress_chunk};
+use distrans::bytes::{chunk_file, generate_shared_key};
 use distrans::cryptography::{encrypt_chunk, NONCE_SIZE};
 use std::path::Path;
 use std::fs::{self, File};

@@ -5,7 +5,7 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::tcp::OwnedReadHalf;
 use tokio::net::TcpStream;
 use distrans::networking::{establish_connection, perform_pake, Init};
-use distrans::bytes::{decompress_chunk, get_shared_key, reconstruct_file};
+use distrans::bytes::{get_shared_key, reconstruct_file};
 use std::path::Path;
 
 
@@ -32,7 +32,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
     let file = tokio::spawn(read_task(read_half, encryption_key)).await?.unwrap();
 
-    let output_path: &Path = Path::new("pic.jpg");
+    let output_path: &Path = Path::new("new_hap.txt");
     if let Err(e) = reconstruct_file(file, output_path).await {
         eprintln!("Failed to reconstruct file: {}", e);
     } else {

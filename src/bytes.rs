@@ -39,13 +39,13 @@ pub fn get_shared_key() -> u32 {
     };
 }
 
-pub async fn compress_chunk(chunk: &Vec<u8>) -> Vec<u8> {
-    zstd::encode_all(&chunk[..], 3).expect("Failed to compress chunk")
-}
+// pub async fn compress_chunk(chunk: &Vec<u8>) -> Vec<u8> {
+//     zstd::encode_all(&chunk[..], 3).expect("Failed to compress chunk")
+// }
 
-pub async fn decompress_chunk(chunk: &Vec<u8>) -> Vec<u8> {
-    zstd::decode_all(&chunk[..]).expect("Failed to decompress chunk")
-}
+// pub async fn decompress_chunk(chunk: &Vec<u8>) -> Vec<u8> {
+//     zstd::decode_all(&chunk[..]).expect("Failed to decompress chunk")
+// }
 
 
 pub async fn chunk_file(file_path: String, chunk_size: usize) -> io::Result<Vec<Vec<u8>>> {
