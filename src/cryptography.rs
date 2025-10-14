@@ -1,4 +1,4 @@
-use spake2::{Ed25519Group, Identity, Password, Spake2, Error as Spake2Error};
+use spake2::{Ed25519Group, Identity, Password, Spake2, Error};
 use sha2::{Digest, Sha256};
 use hkdf::Hkdf;
 use chacha20poly1305::{
@@ -9,6 +9,7 @@ use chacha20poly1305::aead::Error as AeadError;
 pub use chacha20poly1305::aead::Error as EncryptionError;
 
 pub const KEY_SIZE: usize = 32;
+pub const NONCE_SIZE: usize = 12;
 
 pub fn create_session_id(shared_room_key: u32) -> Identity {
     let mut hasher = Sha256::default();
@@ -24,8 +25,7 @@ pub fn generate_initial_pake_message(shared_room_key: u32, identity: &Identity) 
 
 pub fn derive_session_key(
     spake: Spake2<Ed25519Group>, 
-    inbound_message: &[u8]
-) -> Result<[u8; KEY_SIZE], Spake2Error> {
+    inbound_message: &[u8]) -> Result<[u8; KEY_SIZE], spake2::Error> {
     let shared_secret = spake.finish(inbound_message)?;
 
     let hkdf = Hkdf::<Sha256>::new(None, shared_secret.as_ref());
@@ -40,7 +40,7 @@ pub fn derive_session_key(
 pub fn encrypt_chunk(
     key: &[u8; KEY_SIZE],
     chunk: &[u8],
-    nonce_bytes: &[u8; 12],
+    nonce_bytes: &[u8; NONCE_SIZE],
 ) -> Result<Vec<u8>, AeadError> {
     let cipher = ChaCha20Poly1305::new(key.into());
     let nonce = Nonce::from_slice(nonce_bytes); // Create a Nonce object
@@ -52,7 +52,7 @@ pub fn encrypt_chunk(
 pub fn decrypt_chunk(
     key: &[u8; KEY_SIZE],
     encrypted_chunk: &[u8],
-    nonce_bytes: &[u8; 12],
+    nonce_bytes: &[u8; NONCE_SIZE],
 ) -> Result<Vec<u8>, AeadError> {
     let cipher = ChaCha20Poly1305::new(key.into());
     let nonce = Nonce::from_slice(nonce_bytes);

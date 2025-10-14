@@ -1,9 +1,10 @@
-use tokio::net::tcp::{OwnedWriteHalf, ReadHalf, WriteHalf};
+use tokio::net::tcp::{OwnedReadHalf, OwnedWriteHalf, ReadHalf, WriteHalf};
 use tokio::net::{TcpStream, TcpSocket, TcpListener};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use std::{error::Error, net::SocketAddr};
 use std::time::Duration;
 use serde::{Serialize, Deserialize};
+use crate::cryptography::{generate_initial_pake_message, create_session_id, derive_session_key, KEY_SIZE};
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct Init{
@@ -103,4 +104,30 @@ pub async fn establish_connection(relay_addr: &str, init: Init) -> Result<TcpStr
     // if p2p failed, fallback to relay
     println!("P2P failed, using relay connection");
     Ok(relay_stream)
+}
+
+
+pub async fn perform_pake(
+    mut write_half: OwnedWriteHalf,
+    mut read_half: OwnedReadHalf,
+    shared_key: u32,
+) -> Result<([u8; KEY_SIZE], OwnedWriteHalf, OwnedReadHalf), Box<dyn std::error::Error>> {
+    let identity = create_session_id(shared_key);
+    let (spake, message) = generate_initial_pake_message(shared_key, &identity);
+
+    // send our PAKE message
+    let encoded_message = bincode::serialize(&message)?;
+    let len = encoded_message.len() as u32;
+    write_half.write_u32(len).await?;
+    write_half.write_all(&encoded_message).await?;
+
+    // receive the peer's PAKE message
+    let len = read_half.read_u32().await?;
+    let mut buffer = vec![0; len as usize];
+    read_half.read_exact(&mut buffer).await?;
+    let received_message: Vec<u8> = bincode::deserialize(&buffer)?;
+
+    let key = derive_session_key(spake, &received_message)
+        .map_err(|e| format!("PAKE key derivation failed: {:?}", e))?;
+    Ok((key, write_half, read_half))
 }
