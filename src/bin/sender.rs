@@ -57,8 +57,8 @@ async fn main() -> Result<(), Box<dyn Error>> {
     // tokio::spawn(write_task(write_half, chunks?)).await?;
     let mut file = File::open(filename).unwrap();
     let total_chunks = encrypted_chunks.clone();
-    // tokio::spawn(new_write_task(write_half, file, encryption_key)).await?;
-    tokio::spawn(write_task(write_half, encrypted_chunks)).await?;
+    tokio::spawn(new_write_task(write_half, file, encryption_key)).await?;
+    // tokio::spawn(write_task(write_half, encrypted_chunks)).await?;
     println!("sent {} chunks to receiver", total_chunks.len());
     
     println!("Disconnecting.");
@@ -101,6 +101,9 @@ async fn new_write_task(mut write_socket: OwnedWriteHalf, mut file: File, key:[u
         nonce_bytes[..8].copy_from_slice(&chunk_index.to_le_bytes());
         let encrypted = encrypt_chunk(&key, &buffer, &nonce_bytes).unwrap();
 
+        // Send chunk size first (as u32), then the encrypted data
+        let chunk_size = encrypted.len() as u32;
+        let _ = write_socket.write_u32(chunk_size).await;
         let _ = write_socket.write_all(&encrypted).await;
         println!("sending {:?} bytes to receiver", encrypted.len());
 

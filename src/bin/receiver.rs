@@ -6,7 +6,7 @@ use tokio::net::tcp::OwnedReadHalf;
 use tokio::net::TcpStream;
 use distrans::networking::{establish_connection, perform_pake, Init};
 use distrans::bytes::{get_shared_key, reconstruct_file};
-use distrans::{CHUNK_SIZE, RELAY_ADDR, NONCE_SIZE};
+use distrans::{RELAY_ADDR, NONCE_SIZE};
 use std::path::Path;
 
 
@@ -44,19 +44,25 @@ async fn read_task(mut read_half: OwnedReadHalf, encryption_key:[u8; 32]) -> Res
     let mut chunk_index: u64 = 0;
 
     loop {
-
-        let mut buffer = vec![0; CHUNK_SIZE];
-
-        // Read the server's echo
-        match read_half.read(&mut buffer).await {
-            Ok(0) => {
-                // Connection closed by the server
-                println!("Server closed the connection.");
+        // First, read the chunk size (u32)
+        let chunk_size = match read_half.read_u32().await {
+            Ok(size) => size as usize,
+            Err(e) if e.kind() == std::io::ErrorKind::UnexpectedEof => {
+                // Connection closed by the sender
+                println!("Sender closed the connection.");
                 break;
             },
-            Ok(n) => {
-                println!("received {} bytes from sender", n);
-                buffer.truncate(n);
+            Err(e) => {
+                eprintln!("Failed to read chunk size: {}", e);
+                break;
+            }
+        };
+
+        // Now read exactly chunk_size bytes
+        let mut buffer = vec![0; chunk_size];
+        match read_half.read_exact(&mut buffer).await {
+            Ok(_) => {
+                println!("received {} bytes from sender", chunk_size);
 
                 // let decompressed = decompress_chunk(&buffer).await;
 
@@ -75,10 +81,10 @@ async fn read_task(mut read_half: OwnedReadHalf, encryption_key:[u8; 32]) -> Res
 
                 file.push(decrypted_chunk);
                 chunk_index += 1;
-
             },
             Err(e) => {
-                eprintln!("Failed to read from server: {}", e);
+                eprintln!("Failed to read chunk data: {}", e);
+                break;
             }
         }
     }
