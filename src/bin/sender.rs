@@ -1,11 +1,11 @@
 use std::error::Error;
 use std::io::Read;
-use tokio::net::tcp::{OwnedReadHalf, OwnedWriteHalf};
+use tokio::net::tcp::OwnedWriteHalf;
 use tokio::net::{TcpStream};
-use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use tokio::io::{AsyncWriteExt};
 use distrans::networking::{establish_connection, perform_pake, send_message_metadata};
 use distrans::utils::{Init};
-use distrans::bytes::{chunk_and_encrypt_file, chunk_file, generate_shared_key, get_filename};
+use distrans::bytes::{generate_shared_key, get_filename};
 use distrans::cryptography::{encrypt_chunk};
 use indicatif::{ProgressBar};
 use std::fs::{File};
@@ -21,16 +21,16 @@ async fn main() -> Result<(), Box<dyn Error>> {
     println!("shared key (copied to clipboard): {}", shared_key);
 
     let init:Init = Init {is_sender: true, room: shared_key / 100, local_addr: None};
-    let mut stream: TcpStream = establish_connection(RELAY_ADDR, init).await?;
-    let (mut read_half, mut write_half) = stream.into_split();
+    let stream: TcpStream = establish_connection(RELAY_ADDR, init).await?;
+    let (read_half, write_half) = stream.into_split();
 
     // perform pake handshake with the generated key
     // this will exchange some messages with the receiver
-    let (encryption_key, write_half, read_half) =
+    let (encryption_key, write_half, _read_half) =
         perform_pake(write_half, read_half, shared_key).await?;
     
-    let mut file = File::open(&filename).unwrap();
-    let (write_half, metadata) = send_message_metadata(write_half, filename.clone(), &file).await?;
+    let file = File::open(&filename).unwrap();
+    let (write_half, _metadata) = send_message_metadata(write_half, filename.clone(), &file).await?;
 
     // chunk and encrypt the file as we go
     tokio::spawn(new_write_task(write_half, file, encryption_key)).await?;
