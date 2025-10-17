@@ -75,7 +75,7 @@ pub async fn chunk_file(file_path: String) -> io::Result<Vec<Vec<u8>>> {
 }
 
 pub fn create_file_bufwriter(output_path: &Path) -> BufWriter<File> {
-    let mut file = OpenOptions::new()
+    let file = OpenOptions::new()
         .create(true)
         .write(true)
         .truncate(true)
@@ -88,7 +88,7 @@ pub fn create_file_bufwriter(output_path: &Path) -> BufWriter<File> {
 pub async fn reconstruct_file(chunks: Vec<Vec<u8>>, output_path: &Path) -> io::Result<()> {
     // Open the file for writing. `.create(true)` will create the file
     // if it does not exist.
-    let mut file = OpenOptions::new()
+    let file = OpenOptions::new()
         .create(true)
         .write(true)
         .truncate(true)
