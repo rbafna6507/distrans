@@ -1,21 +1,13 @@
-use tokio::net::tcp::{OwnedReadHalf, OwnedWriteHalf, ReadHalf, WriteHalf};
+use tokio::net::tcp::{OwnedReadHalf, OwnedWriteHalf};
 use tokio::net::{TcpStream, TcpSocket, TcpListener};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use std::fs::{File};
 use std::{error::Error, net::SocketAddr};
 use std::time::Duration;
 use serde::{Serialize, Deserialize};
 use crate::cryptography::{generate_initial_pake_message, create_session_id, derive_session_key};
+use crate::utils::{FileMetadata, Init};
 use crate::KEY_SIZE;
-
-#[derive(Serialize, Deserialize, Debug, Clone)]
-pub struct Init{
-    pub is_sender: bool,
-    pub room: u32,
-    pub local_addr: Option<SocketAddr>,
-    // other relevant file data eventually
-    // like pake password hash
-    // file metadata - name, size, etc
-}
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct PeerAddresses {
@@ -41,22 +33,18 @@ pub async fn attempt_p2p_connection(local_addr: SocketAddr, receiver_addr: Socke
     // open a listening socket to accept the tcp hole punch
     let listen_socket: TcpSocket = create_reusable_socket(local_addr)?;
     let listener: TcpListener = listen_socket.listen(1024)?;
-    println!("Listener is ready on {}", local_addr);
 
     // open a new socket connection to connect to the other peer
     let connect_socket:TcpSocket = create_reusable_socket(local_addr)?;
-    println!("Connector is ready on {}", local_addr);
 
     tokio::select! {
         // try to accept peer's connection
         Ok((p2p_stream, _addr)) = listener.accept() => {
-            println!("SUCCESS: Accepted peer connection!");
             return Ok(p2p_stream);
         }
 
         // try connecting to peer (tcp hole punch) 
         Ok(p2p_stream) = connect_socket.connect(receiver_addr) => {
-            println!("SUCCESS: Connected to peer!");
             return Ok(p2p_stream);
         }
 
@@ -86,8 +74,8 @@ pub async fn establish_connection(relay_addr: &str, mut init: Init) -> Result<Tc
         Ok(0) => return Err("Relay server closed connection".into()),
         Ok(n) => {
             let addresses: PeerAddresses = serde_json::from_slice(&buffer[..n])?;
-            println!("Received peer addresses - External: {}, Local: {:?}", 
-                     addresses.external_addr, addresses.local_addr);
+            // println!("Received peer addresses - External: {}, Local: {:?}", 
+            //          addresses.external_addr, addresses.local_addr);
             addresses
         }
         Err(e) => return Err(e.into()),
@@ -98,7 +86,6 @@ pub async fn establish_connection(relay_addr: &str, mut init: Init) -> Result<Tc
 
     // Three attempts at connecting to the peer directly
     for attempt in 1..=3 {
-        println!("P2P attempt {} of 3", attempt);
         
         match attempt_p2p_connection(local_addr, target_addr).await {
             Ok(p2p_stream) => {
@@ -146,13 +133,13 @@ fn determine_target_address(
         
         // if sender/receiver on same network, use local addresses
         if same_network {
-            println!("Same local network detected, using peer's local address: {}", peer_local_addr);
+            // println!("Same local network detected, using peer's local address: {}", peer_local_addr);
             return Ok(peer_local_addr);
         }
     }
     
     // different networks or no local address available, use external address
-    println!("Using peer's external address for P2P: {}", peer_addresses.external_addr);
+    // println!("Using peer's external address for P2P: {}", peer_addresses.external_addr);
     Ok(peer_addresses.external_addr)
 }
 
@@ -180,4 +167,33 @@ pub async fn perform_pake(
     let key = derive_session_key(spake, &received_message)
         .map_err(|e| format!("PAKE key derivation failed: {:?}", e))?;
     Ok((key, write_half, read_half))
+}
+
+pub async fn send_message_metadata(mut write_half: OwnedWriteHalf, filename: String, file: &File) -> Result<(OwnedWriteHalf, FileMetadata), Box<dyn Error>> { 
+    let file_size = file.metadata()?.len(); 
+    let is_folder: bool = file.metadata()?.is_dir();
+
+    let metadata = FileMetadata {filename, file_size, is_folder};
+    let encoded_metadata: Vec<u8> = bincode::serialize(&metadata).unwrap();
+    write_half.write_all(&encoded_metadata).await?;
+
+    Ok((write_half, metadata))
+}
+
+pub async fn receive_message_metadata(mut read_half: OwnedReadHalf) -> Result<(FileMetadata, OwnedReadHalf), Box<dyn Error>> {
+    let mut buffer = vec![0; 1024];
+    
+    let metadata = match read_half.read(&mut buffer).await {
+        Ok(0) => return Err("Relay server closed connection".into()),
+        Ok(n) => {
+            let metadata: FileMetadata = bincode::deserialize(&buffer[..n])?;
+            metadata
+        }
+        Err(e) => {
+            println!("error reading message metadata");
+            return Err(e.into())
+        }
+    };
+
+    Ok((metadata, read_half))
 }

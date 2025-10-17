@@ -4,18 +4,8 @@ use tokio::sync::mpsc::{self, Receiver, Sender};
 use std::net::SocketAddr;
 use std::collections::HashMap;
 use std::error::Error;
+use distrans::utils::Init;
 use serde::{Serialize, Deserialize};
-
-
-#[derive(Serialize, Deserialize, Debug, Clone)]
-struct Init{
-    is_sender: bool,
-    room: u32,
-    local_addr: Option<SocketAddr>,
-    // other relevant file data eventually
-    // like pake password hash
-    // file metadata - name, size, etc
-}
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 struct PeerAddresses {

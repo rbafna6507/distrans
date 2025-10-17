@@ -1,12 +1,13 @@
-use std::clone;
 use std::error::Error;
 use std::io::Read;
 use tokio::net::tcp::{OwnedReadHalf, OwnedWriteHalf};
 use tokio::net::{TcpStream};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
-use distrans::networking::{Init, establish_connection, perform_pake};
+use distrans::networking::{establish_connection, perform_pake, send_message_metadata};
+use distrans::utils::{Init};
 use distrans::bytes::{chunk_and_encrypt_file, chunk_file, generate_shared_key, get_filename};
 use distrans::cryptography::{encrypt_chunk};
+use indicatif::{ProgressBar};
 use std::fs::{File};
 
 use distrans::{CHUNK_SIZE, NONCE_SIZE, RELAY_ADDR};
@@ -14,68 +15,36 @@ use distrans::{CHUNK_SIZE, NONCE_SIZE, RELAY_ADDR};
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {
 
-    // Connect to the server
-    // 100.86.70.21:8443 for relay pi
-
     let filename = get_filename()?;
 
     let shared_key = generate_shared_key();
-    println!("shared key: {}", shared_key);
+    println!("shared key (copied to clipboard): {}", shared_key);
 
-
-    let init:Init = Init {is_sender: true, room: 0, local_addr: None};
+    let init:Init = Init {is_sender: true, room: shared_key / 100, local_addr: None};
     let mut stream: TcpStream = establish_connection(RELAY_ADDR, init).await?;
     let (mut read_half, mut write_half) = stream.into_split();
 
-    // perform PAKE here - do i need PAKEMessage?
-    // pake function
+    // perform pake handshake with the generated key
+    // this will exchange some messages with the receiver
     let (encryption_key, write_half, read_half) =
         perform_pake(write_half, read_half, shared_key).await?;
-
-    // attempt to encryp the file
-    let encrypted_chunks = chunk_and_encrypt_file(&filename, encryption_key).await?;
-
-    // will also need to get file info - name and file size info - send in a transferInit Message
-    // init transfer message - metadata of file: filename, size, etc
-
-    // transferMessage - just contains the data we're sending (and optionally the chunk idx if we want to multithread in the future)
-    // file chunk message
     
-    // read task should:
-    // receive an ack
-    // verify the idx and success of the ack
-    // allow the write task to continue sending chunks
-    tokio::spawn(read_task(read_half));
+    let mut file = File::open(&filename).unwrap();
+    let (write_half, metadata) = send_message_metadata(write_half, filename.clone(), &file).await?;
 
-    // write task should:
-    // iterate over file (for chunk in file)
-    // compress the chunk
-    // encrypt the chunk
-    // package? chunk + the ?expected hash? + chunk_id in a FileChunkMessage struct
-    // write the FileChunkMessage
-    // wait for an ack with the same chunk id
-    // tokio::spawn(write_task(write_half, chunks?)).await?;
-    let mut file = File::open(filename).unwrap();
-    let total_chunks = encrypted_chunks.clone();
+    // chunk and encrypt the file as we go
     tokio::spawn(new_write_task(write_half, file, encryption_key)).await?;
-    // tokio::spawn(write_task(write_half, encrypted_chunks)).await?;
-    println!("sent {} chunks to receiver", total_chunks.len());
-    
-    println!("Disconnecting.");
+
     Ok(())
 }
 
 
-async fn write_task(mut write_socket: OwnedWriteHalf, chunks: Vec<Vec<u8>>) {
-
-    for chunk in chunks {
-        println!("sending {:?} bytes to receiver", chunk.len());
-        let _ = write_socket.write_all(&chunk).await;
-    }
-    
-}
-
+// new write task is standalone: chunk, encrypt, send for each chunk of data.
 async fn new_write_task(mut write_socket: OwnedWriteHalf, mut file: File, key:[u8; 32]) {
+    let meta = file.metadata().unwrap();
+    let bar = ProgressBar::new(meta.len()/1024);
+    // bar.enable_steady_tick(Duration::from_millis(100));
+
     let mut chunk_index: u64 = 0;
 
     const ENCRYPTION_OVERHEAD: usize = 16;
@@ -105,32 +74,11 @@ async fn new_write_task(mut write_socket: OwnedWriteHalf, mut file: File, key:[u
         let chunk_size = encrypted.len() as u32;
         let _ = write_socket.write_u32(chunk_size).await;
         let _ = write_socket.write_all(&encrypted).await;
-        println!("sending {:?} bytes to receiver", encrypted.len());
+        // println!("sending {:?} bytes to receiver", encrypted.len());
 
-        chunk_index += 1
+        chunk_index += 1;
+        bar.inc(1);
     }
-}
-
-
-async fn read_task(mut read_socket: OwnedReadHalf) {
-
-    loop {
-        let mut buffer = vec![0; 1024];
-
-        match read_socket.read(&mut buffer).await {
-            Ok(0) => {
-                println!("Server closed the connection.");
-                return;
-            },
-            Ok(n) => {
-                let received = String::from_utf8_lossy(&buffer[..n]);
-                println!("Received: '{}'", received);
-            },
-            Err(e) => {
-                eprintln!("Failed to read from server: {}", e);
-                return;
-            }
-        }
-
-    }
+    bar.finish_with_message("Transfer Complete!");
+    
 }
