@@ -1,17 +1,19 @@
-use std::io::{self, Read, Write, BufWriter};
+use std::io::{self, Read, Write, BufWriter, Cursor};
 use std::error::Error;
 use std::fs::{File, OpenOptions};
 use crate::{NONCE_SIZE, CHUNK_SIZE, ENCRYPTION_OVERHEAD, ENCRYPTION_ADJUSTED_CHUNK_SIZE, cryptography::{encrypt_chunk}};
-use crate::utils::{CliReceiver, CliSender};
+use crate::utils::{CliReceiver, CliSender, FileMetadata};
 use std::path::Path;
 use clap::Parser;
 use rand::Rng;
+use zip::write::{FileOptions, ZipWriter};
+use zip::read::ZipArchive;
+use std::fs;
 use arboard::Clipboard;
+use walkdir::WalkDir;
 
 
-// needs compression
-// and PAKE
-// needs generate_phrase() function to help generate a room
+// TODO: compression and folders
 
 pub fn generate_shared_key() -> u32 {
     let mut clipboard = Clipboard::new().unwrap();
@@ -37,19 +39,79 @@ pub fn get_shared_key() -> Result<u32, Box<dyn Error>> {
 // }
 
 
-// folder logic
-// similarly:
-    // take in the folder path
-    // initialize the zip folder (compresses any additions)
-    // recursively traverse the folder
-    // add file to folder
+/// compress a file into a zip archive
+/// returns the zip archive as a Vec<u8>
+pub fn compress_folder(folder_path: &Path) -> Result<Vec<u8>, Box<dyn Error>> {
+    let buffer = Cursor::new(Vec::new());
+    let mut zip = ZipWriter::new(buffer);
+    
+    let options = FileOptions::<()>::default()
+        .compression_method(zip::CompressionMethod::Deflated)
+        .unix_permissions(0o755);
+    
+    // walk through all directories in folder
+    for entry in WalkDir::new(folder_path) {
+        let entry = entry?;
+        let path = entry.path();
+        
+        // get relative path from base folder
+        let relative_path = path.strip_prefix(folder_path.parent().unwrap_or(folder_path))?;
+        let name = relative_path.to_str().ok_or("Invalid path")?;
+        
+        if path.is_file() {
+            println!("Adding file: {}", name);
+            zip.start_file(name, options)?;
+            let mut f = File::open(path)?;
+            io::copy(&mut f, &mut zip)?;
+        } else if path.is_dir() && path != folder_path {
+            // Add directory entry (with trailing /)
+            println!("Adding directory: {}/", name);
+            zip.add_directory(format!("{}/", name), options)?;
+        }
+    }
+    
+    let cursor = zip.finish()?;
+    Ok(cursor.into_inner())
+}
 
-// 
-
-
-
-// add file to folder
-    // takes in
+// decompress zip folder into target directory
+pub fn decompress_folder(zip_data: &[u8], output_path: &Path) -> Result<(), Box<dyn Error>> {
+    let reader = Cursor::new(zip_data);
+    let mut archive = ZipArchive::new(reader)?;
+    
+    println!("Extracting {} files/folders...", archive.len());
+    
+    for i in 0..archive.len() {
+        let mut file = archive.by_index(i)?;
+        let outpath = output_path.join(file.name());
+        
+        if file.name().ends_with('/') {
+            // It's a directory
+            println!("Creating directory: {:?}", outpath);
+            fs::create_dir_all(&outpath)?;
+        } else {
+            // It's a file
+            println!("Extracting file: {:?}", outpath);
+            if let Some(parent) = outpath.parent() {
+                fs::create_dir_all(parent)?;
+            }
+            let mut outfile = File::create(&outpath)?;
+            io::copy(&mut file, &mut outfile)?;
+        }
+        
+        // Set permissions on Unix systems
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            if let Some(mode) = file.unix_mode() {
+                fs::set_permissions(&outpath, fs::Permissions::from_mode(mode))?;
+            }
+        }
+    }
+    
+    println!("Extraction complete!");
+    Ok(())
+}
 
 
 pub async fn chunk_file(file_path: String) -> io::Result<Vec<Vec<u8>>> {
@@ -148,15 +210,5 @@ pub fn get_filename() -> Result<String, Box<dyn Error>> {
     let cli = CliSender::parse();
     Ok(cli.filename)
 
-    // println!("Enter filename to send:");
-    // let mut input = String::new();
-    // input = std::io::stdin().read_line(&mut input).map(|_| input.trim().to_string())?;
-
-    // if !Path::new(&input).exists() {
-    //     return Err(format!("File '{}' not found in current directory: {:?}", 
-    //                     input, std::env::current_dir()?).into());
-    // }
-
-    // Ok(input)
 }
 
