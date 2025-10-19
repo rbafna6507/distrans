@@ -2,6 +2,8 @@ pub mod cryptography;
 pub mod networking;
 pub mod bytes;
 pub mod utils;
+pub mod relay_utils;
+pub mod commands;
 
 pub const KEY_SIZE: usize = 32;
 pub const NONCE_SIZE: usize = 12;

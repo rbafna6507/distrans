@@ -1,10 +1,11 @@
-use std::io::{self, Read, Write, BufWriter, Cursor};
+use std::io::{self, Read, BufWriter, Cursor};
 use std::error::Error;
 use std::fs::{File, OpenOptions};
-use crate::{NONCE_SIZE, CHUNK_SIZE, ENCRYPTION_OVERHEAD, ENCRYPTION_ADJUSTED_CHUNK_SIZE, cryptography::{encrypt_chunk}};
+use crate::{CHUNK_SIZE, ENCRYPTION_OVERHEAD, ENCRYPTION_ADJUSTED_CHUNK_SIZE, cryptography::{encrypt_chunk}};
 use crate::utils::{CliReceiver, CliSender, FileMetadata};
 use std::path::Path;
 use clap::Parser;
+use log::debug;
 use rand::Rng;
 use zip::write::{FileOptions, ZipWriter};
 use zip::read::ZipArchive;
@@ -12,8 +13,21 @@ use std::fs;
 use arboard::Clipboard;
 use walkdir::WalkDir;
 
+/// Read a chunk of data from a data source
+/// Returns the buffer with data and the number of bytes read
+/// The buffer size is CHUNK_SIZE - ENCRYPTION_OVERHEAD to leave room for encryption overhead
+pub fn read_chunk<R: Read>(data_source: &mut R) -> Result<(Vec<u8>, usize), io::Error> {
+    const PLAINTEXT_CHUNK_SIZE: usize = CHUNK_SIZE - ENCRYPTION_OVERHEAD;
+    let mut buffer = vec![0; PLAINTEXT_CHUNK_SIZE];
+    let bytes_read = data_source.read(&mut buffer)?;
+    
+    if bytes_read > 0 {
+        buffer.truncate(bytes_read);
+    }
+    
+    Ok((buffer, bytes_read))
+}
 
-// TODO: compression and folders
 
 pub fn generate_shared_key() -> u32 {
     let mut clipboard = Clipboard::new().unwrap();
@@ -30,14 +44,15 @@ pub fn get_shared_key() -> Result<u32, Box<dyn Error>> {
     Ok(cli.shared_key)
 }
 
-// pub async fn compress_chunk(chunk: &Vec<u8>) -> Vec<u8> {
-//     zstd::encode_all(&chunk[..], 3).expect("Failed to compress chunk")
-// }
-
-// pub async fn decompress_chunk(chunk: &Vec<u8>) -> Vec<u8> {
-//     zstd::decode_all(&chunk[..]).expect("Failed to decompress chunk")
-// }
-
+/// Generate FileMetadata based on the path (file or folder)
+/// For folders, size should be the compressed zip size
+pub fn generate_metadata(filename: String, size: u64, is_folder: bool) -> FileMetadata {
+    FileMetadata {
+        filename,
+        file_size: size,
+        is_folder,
+    }
+}
 
 /// compress a file into a zip archive
 /// returns the zip archive as a Vec<u8>
@@ -54,18 +69,23 @@ pub fn compress_folder(folder_path: &Path) -> Result<Vec<u8>, Box<dyn Error>> {
         let entry = entry?;
         let path = entry.path();
         
-        // get relative path from base folder
-        let relative_path = path.strip_prefix(folder_path.parent().unwrap_or(folder_path))?;
+        // Skip the root folder itself
+        if path == folder_path {
+            continue;
+        }
+        
+        // get relative path from the folder being compressed (not its parent)
+        let relative_path = path.strip_prefix(folder_path)?;
         let name = relative_path.to_str().ok_or("Invalid path")?;
         
         if path.is_file() {
-            println!("Adding file: {}", name);
+            debug!("Adding file: {}", name);
             zip.start_file(name, options)?;
             let mut f = File::open(path)?;
             io::copy(&mut f, &mut zip)?;
-        } else if path.is_dir() && path != folder_path {
+        } else if path.is_dir() {
             // Add directory entry (with trailing /)
-            println!("Adding directory: {}/", name);
+            debug!("Adding directory: {}/", name);
             zip.add_directory(format!("{}/", name), options)?;
         }
     }
@@ -147,34 +167,6 @@ pub fn create_file_bufwriter(output_path: &Path) -> BufWriter<File> {
 }
 
 
-pub async fn reconstruct_file(chunks: Vec<Vec<u8>>, output_path: &Path) -> io::Result<()> {
-    // Open the file for writing. `.create(true)` will create the file
-    // if it does not exist.
-    let file = OpenOptions::new()
-        .create(true)
-        .write(true)
-        .truncate(true)
-        .open(output_path)?;
-
-    let mut writer = BufWriter::new(file);
-
-    for chunk in chunks {
-        // Write each chunk to the writer
-        writer.write_all(&chunk)?;
-        // println!("Wrote a chunk of {} bytes.", chunk.len());
-    }
-
-    writer.flush()?;
-
-    println!("File successfully reconstructed at {:?}", output_path);
-    Ok(())
-}
-
-pub async fn add_chunk_to_file(mut writer: BufWriter<File>, chunk: &Vec<u8>) -> Result<BufWriter<File>, Box<dyn Error>> {
-    writer.write_all(&chunk)?;
-    Ok(writer)
-}
-
 pub async fn chunk_and_encrypt_file(file_path: &String, encryption_key: [u8; 32]) -> Result<Vec<Vec<u8>>, Box<dyn Error>> {
     let mut file = File::open(file_path)?;
     let mut chunk_index: u64 = 0;
@@ -194,9 +186,7 @@ pub async fn chunk_and_encrypt_file(file_path: &String, encryption_key: [u8; 32]
         buffer.truncate(bytes_read);
 
         // encrypt buffer
-        let mut nonce_bytes = [0u8; NONCE_SIZE];
-        nonce_bytes[..8].copy_from_slice(&chunk_index.to_le_bytes());
-        let encrypted = encrypt_chunk(&encryption_key, &buffer, &nonce_bytes).unwrap();
+        let encrypted = encrypt_chunk(&encryption_key, &buffer, chunk_index).unwrap();
 
         chunks.push(encrypted);
         chunk_index += 1

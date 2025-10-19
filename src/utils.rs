@@ -29,3 +29,9 @@ pub struct FileMetadata {
     pub file_size: u64,
     pub is_folder: bool
 }
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct PeerAddresses {
+    pub external_addr: SocketAddr,
+    pub local_addr: Option<SocketAddr>,
+}

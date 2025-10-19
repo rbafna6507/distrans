@@ -35,25 +35,35 @@ pub fn derive_session_key(
 }
 
 
+/// Encrypt a chunk with a chunk index
+/// The chunk index is used to generate a unique nonce for each chunk
 pub fn encrypt_chunk(
     key: &[u8; KEY_SIZE],
     chunk: &[u8],
-    nonce_bytes: &[u8; NONCE_SIZE],
+    chunk_index: u64,
 ) -> Result<Vec<u8>, AeadError> {
     let cipher = ChaCha20Poly1305::new(key.into());
-    let nonce = Nonce::from_slice(nonce_bytes); // Create a Nonce object
+    
+    let mut nonce_bytes = [0u8; NONCE_SIZE];
+    nonce_bytes[..8].copy_from_slice(&chunk_index.to_le_bytes());
+    let nonce = Nonce::from_slice(&nonce_bytes);
     
     // The `encrypt` method handles everything: encryption and generating the auth tag.
     cipher.encrypt(nonce, chunk)
 }
 
+/// Decrypt a chunk with a chunk index
+/// The chunk index is used to generate a unique nonce for each chunk
 pub fn decrypt_chunk(
     key: &[u8; KEY_SIZE],
     encrypted_chunk: &[u8],
-    nonce_bytes: &[u8; NONCE_SIZE],
+    chunk_index: u64,
 ) -> Result<Vec<u8>, AeadError> {
     let cipher = ChaCha20Poly1305::new(key.into());
-    let nonce = Nonce::from_slice(nonce_bytes);
+    
+    let mut nonce_bytes = [0u8; NONCE_SIZE];
+    nonce_bytes[..8].copy_from_slice(&chunk_index.to_le_bytes());
+    let nonce = Nonce::from_slice(&nonce_bytes);
 
     // The `decrypt` method handles both decryption and authentication tag verification.
     // If the tag is invalid, it will return an error, preventing tampered data from being processed.

@@ -1,19 +1,12 @@
 use tokio::net::tcp::{OwnedReadHalf, OwnedWriteHalf};
 use tokio::net::{TcpStream, TcpSocket, TcpListener};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
-use std::fs::{File};
 use std::{error::Error, net::SocketAddr};
 use std::time::Duration;
-use serde::{Serialize, Deserialize};
 use crate::cryptography::{generate_initial_pake_message, create_session_id, derive_session_key};
-use crate::utils::{FileMetadata, Init};
+use crate::utils::{FileMetadata, Init, PeerAddresses};
 use crate::KEY_SIZE;
-
-#[derive(Serialize, Deserialize, Debug, Clone)]
-pub struct PeerAddresses {
-    pub external_addr: SocketAddr,
-    pub local_addr: Option<SocketAddr>,
-}
+use log::{debug};
 
 
 pub fn create_reusable_socket(local_addr: SocketAddr) -> Result<TcpSocket, Box<dyn Error>> {
@@ -30,9 +23,11 @@ pub fn create_reusable_socket(local_addr: SocketAddr) -> Result<TcpSocket, Box<d
 
 
 pub async fn attempt_p2p_connection(local_addr: SocketAddr, receiver_addr: SocketAddr) -> Result<TcpStream, Box<dyn Error>> {
+    debug!("Attempting P2P connection from {} to {}", local_addr, receiver_addr);
     // open a listening socket to accept the tcp hole punch
     let listen_socket: TcpSocket = create_reusable_socket(local_addr)?;
     let listener: TcpListener = listen_socket.listen(1024)?;
+    debug!("Created listening socket on {}", local_addr);
 
     // open a new socket connection to connect to the other peer
     let connect_socket:TcpSocket = create_reusable_socket(local_addr)?;
@@ -40,16 +35,19 @@ pub async fn attempt_p2p_connection(local_addr: SocketAddr, receiver_addr: Socke
     tokio::select! {
         // try to accept peer's connection
         Ok((p2p_stream, _addr)) = listener.accept() => {
+            debug!("P2P connection accepted from peer");
             return Ok(p2p_stream);
         }
 
         // try connecting to peer (tcp hole punch) 
         Ok(p2p_stream) = connect_socket.connect(receiver_addr) => {
+            debug!("P2P connection established to peer");
             return Ok(p2p_stream);
         }
 
         // timeout after 50ms, keep the relay stream
         _ = tokio::time::sleep(Duration::from_millis(150)) => {
+            debug!("P2P connection attempt timed out");
             return Err("Could not create P2P connection".into())
         }
     };
@@ -57,12 +55,15 @@ pub async fn attempt_p2p_connection(local_addr: SocketAddr, receiver_addr: Socke
 
 
 pub async fn establish_connection(relay_addr: &str, mut init: Init) -> Result<TcpStream, Box<dyn Error>> {
+    debug!("Establishing connection to relay server at {}", relay_addr);
     // connect to relay server
     let mut relay_stream: TcpStream = TcpStream::connect(relay_addr).await?;
     println!("Connected to relay server at {}", relay_addr);
+    debug!("Connected to relay server at {}", relay_addr);
 
     // Capture our local address before sending to relay
     let local_addr = relay_stream.local_addr()?;
+    debug!("Local address: {}", local_addr);
     init.local_addr = Some(local_addr);
 
     let encoded_init: Vec<u8> = bincode::serialize(&init).unwrap();
@@ -74,8 +75,8 @@ pub async fn establish_connection(relay_addr: &str, mut init: Init) -> Result<Tc
         Ok(0) => return Err("Relay server closed connection".into()),
         Ok(n) => {
             let addresses: PeerAddresses = serde_json::from_slice(&buffer[..n])?;
-            // println!("Received peer addresses - External: {}, Local: {:?}", 
-            //          addresses.external_addr, addresses.local_addr);
+            debug!("Received peer addresses - External: {}, Local: {:?}", 
+                     addresses.external_addr, addresses.local_addr);
             addresses
         }
         Err(e) => return Err(e.into()),
@@ -83,17 +84,20 @@ pub async fn establish_connection(relay_addr: &str, mut init: Init) -> Result<Tc
 
     // Determine which address to use for P2P connection
     let target_addr = determine_target_address(&peer_addresses, &local_addr)?;
+    debug!("Target address for P2P: {}", target_addr);
 
     // Three attempts at connecting to the peer directly
     for attempt in 1..=3 {
-        
+        debug!("P2P connection attempt {}/3", attempt);
         match attempt_p2p_connection(local_addr, target_addr).await {
             Ok(p2p_stream) => {
                 println!("P2P connection established, closing relay");
+                debug!("P2P connection established successfully");
                 return Ok(p2p_stream);
             }
             Err(e) => {
                 println!("P2P attempt {} failed: {}", attempt, e);
+                debug!("P2P attempt {} failed: {}", attempt, e);
                 if attempt < 3 {
                     tokio::time::sleep(Duration::from_millis(150)).await;
                 }
@@ -103,6 +107,7 @@ pub async fn establish_connection(relay_addr: &str, mut init: Init) -> Result<Tc
 
     // if p2p failed, fallback to relay
     println!("P2P failed, using relay connection");
+    debug!("P2P connection failed, falling back to relay");
     Ok(relay_stream)
 }
 
@@ -169,15 +174,15 @@ pub async fn perform_pake(
     Ok((key, write_half, read_half))
 }
 
-pub async fn send_message_metadata(mut write_half: OwnedWriteHalf, filename: String, file: &File) -> Result<(OwnedWriteHalf, FileMetadata), Box<dyn Error>> { 
-    let file_size = file.metadata()?.len(); 
-    let is_folder: bool = file.metadata()?.is_dir();
 
-    let metadata = FileMetadata {filename, file_size, is_folder};
-    let encoded_metadata: Vec<u8> = bincode::serialize(&metadata).unwrap();
+pub async fn send_metadata (
+    mut write_half: OwnedWriteHalf,
+    metadata: &FileMetadata) -> Result<OwnedWriteHalf, Box<dyn Error>> {
+    // Send metadata
+    let encoded_metadata: Vec<u8> = bincode::serialize(&metadata)?;
     write_half.write_all(&encoded_metadata).await?;
-
-    Ok((write_half, metadata))
+    
+    Ok(write_half)
 }
 
 pub async fn receive_message_metadata(mut read_half: OwnedReadHalf) -> Result<(FileMetadata, OwnedReadHalf), Box<dyn Error>> {
@@ -196,4 +201,22 @@ pub async fn receive_message_metadata(mut read_half: OwnedReadHalf) -> Result<(F
     };
 
     Ok((metadata, read_half))
+}
+
+/// Read the size of the next encrypted chunk from the network
+/// Returns None if EOF is reached (graceful connection close)
+pub async fn read_chunk_size(read_half: &mut OwnedReadHalf) -> Result<Option<usize>, String> {
+    match read_half.read_u32().await {
+        Ok(size) => Ok(Some(size as usize)),
+        Err(e) if e.kind() == std::io::ErrorKind::UnexpectedEof => Ok(None),
+        Err(e) => Err(format!("Failed to read chunk size: {}", e)),
+    }
+}
+
+/// Read an encrypted chunk of the specified size from the network
+pub async fn read_encrypted_chunk(read_half: &mut OwnedReadHalf, chunk_size: usize) -> Result<Vec<u8>, String> {
+    let mut buffer = vec![0; chunk_size];
+    read_half.read_exact(&mut buffer).await
+        .map_err(|e| format!("Failed to read chunk data: {}", e))?;
+    Ok(buffer)
 }
