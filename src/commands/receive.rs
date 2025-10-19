@@ -9,7 +9,7 @@ use crate::networking::{establish_connection, perform_pake, receive_message_meta
 use crate::utils::{Init, FileMetadata};
 use crate::bytes::{create_file_bufwriter, get_shared_key, decompress_folder};
 use crate::RELAY_ADDR;
-use indicatif::ProgressBar;
+use indicatif::{ProgressBar, ProgressStyle};
 use std::path::Path;
 use log::{debug, info};
 
@@ -36,12 +36,12 @@ pub async fn run(key: Option<u32>) -> Result<(), Box<dyn Error>> {
         local_addr: None
     };
 
+    debug!("Connecting to relay server at {}", RELAY_ADDR);
+    let stream: TcpStream = establish_connection(RELAY_ADDR, init).await?;
+    
     let spinner = ProgressBar::new_spinner();
     spinner.enable_steady_tick(Duration::from_millis(100));
     spinner.set_message("Waiting to receive file");
-    
-    debug!("Connecting to relay server at {}", RELAY_ADDR);
-    let stream: TcpStream = establish_connection(RELAY_ADDR, init).await?;
 
     let (read_half, write_half) = stream.into_split();
 
@@ -56,7 +56,7 @@ pub async fn run(key: Option<u32>) -> Result<(), Box<dyn Error>> {
         metadata.file_size
     );
 
-    spinner.finish();
+    spinner.finish_and_clear();
     // Start the pipeline: receive → decrypt → write/decompress
     let (tx, rx) = mpsc::channel::<Vec<u8>>(100);
     
@@ -94,6 +94,9 @@ async fn receive_and_decrypt_task(
 ) -> Result<(), String> {
     debug!("Starting receive and decrypt task, total size: {} bytes", total_size);
     let bar = ProgressBar::new(total_size / 1024);
+    bar.set_style(ProgressStyle::default_bar()
+        .template("{spinner:.black} [{elapsed_precise}] [{bar:40.cyan/blue}] {pos}/{len} KB ({eta}) {msg}")
+        .unwrap());
     let mut chunk_index: u64 = 0;
     
     loop {

@@ -17,8 +17,7 @@ use walkdir::WalkDir;
 /// Returns the buffer with data and the number of bytes read
 /// The buffer size is CHUNK_SIZE - ENCRYPTION_OVERHEAD to leave room for encryption overhead
 pub fn read_chunk<R: Read>(data_source: &mut R) -> Result<(Vec<u8>, usize), io::Error> {
-    const PLAINTEXT_CHUNK_SIZE: usize = CHUNK_SIZE - ENCRYPTION_OVERHEAD;
-    let mut buffer = vec![0; PLAINTEXT_CHUNK_SIZE];
+    let mut buffer = vec![0; ENCRYPTION_ADJUSTED_CHUNK_SIZE];
     let bytes_read = data_source.read(&mut buffer)?;
     
     if bytes_read > 0 {
@@ -54,9 +53,12 @@ pub fn generate_metadata(filename: String, size: u64, is_folder: bool) -> FileMe
     }
 }
 
-/// compress a file into a zip archive
-/// returns the zip archive as a Vec<u8>
+/// Compresses a given folder into a zip archive
+/// Includes all subfolders and files
+/// Returns a Vec<u8> that represents the compressed folder
 pub fn compress_folder(folder_path: &Path) -> Result<Vec<u8>, Box<dyn Error>> {
+
+    // Initialize a buffer to write the file into
     let buffer = Cursor::new(Vec::new());
     let mut zip = ZipWriter::new(buffer);
     
@@ -64,7 +66,7 @@ pub fn compress_folder(folder_path: &Path) -> Result<Vec<u8>, Box<dyn Error>> {
         .compression_method(zip::CompressionMethod::Deflated)
         .unix_permissions(0o755);
     
-    // walk through all directories in folder
+    // Walk through all directories in folder
     for entry in WalkDir::new(folder_path) {
         let entry = entry?;
         let path = entry.path();
@@ -74,10 +76,11 @@ pub fn compress_folder(folder_path: &Path) -> Result<Vec<u8>, Box<dyn Error>> {
             continue;
         }
         
-        // get relative path from the folder being compressed (not its parent)
+        // Get relative path from the folder being compressed
         let relative_path = path.strip_prefix(folder_path)?;
         let name = relative_path.to_str().ok_or("Invalid path")?;
         
+        // Add file or folder to the zip archive
         if path.is_file() {
             debug!("Adding file: {}", name);
             zip.start_file(name, options)?;
@@ -94,24 +97,27 @@ pub fn compress_folder(folder_path: &Path) -> Result<Vec<u8>, Box<dyn Error>> {
     Ok(cursor.into_inner())
 }
 
-// decompress zip folder into target directory
+// Decompress zip folder into target directory
 pub fn decompress_folder(zip_data: &[u8], output_path: &Path) -> Result<(), Box<dyn Error>> {
     let reader = Cursor::new(zip_data);
     let mut archive = ZipArchive::new(reader)?;
     
-    println!("Extracting {} files/folders...", archive.len());
+    debug!("Extracting {} files/folders...", archive.len());
     
+    // For each chunk in the Zip Archive
     for i in 0..archive.len() {
+        // Get filename and create output path
         let mut file = archive.by_index(i)?;
         let outpath = output_path.join(file.name());
         
+        // Extract (create) directory and files
         if file.name().ends_with('/') {
             // It's a directory
-            println!("Creating directory: {:?}", outpath);
+            debug!("Creating directory: {:?}", outpath);
             fs::create_dir_all(&outpath)?;
         } else {
             // It's a file
-            println!("Extracting file: {:?}", outpath);
+            debug!("Extracting file: {:?}", outpath);
             if let Some(parent) = outpath.parent() {
                 fs::create_dir_all(parent)?;
             }
@@ -129,16 +135,18 @@ pub fn decompress_folder(zip_data: &[u8], output_path: &Path) -> Result<(), Box<
         }
     }
     
-    println!("Extraction complete!");
+    debug!("Extraction complete!");
     Ok(())
 }
 
 
+/// Given a filepath, return the file as a vector of chunks of size CHUNK_SIZE
 pub async fn chunk_file(file_path: String) -> io::Result<Vec<Vec<u8>>> {
-    // println!("Attempting to read file: {}", file_path);
     let mut file = File::open(file_path)?;
     let mut chunks = Vec::new();
 
+    // Continue reading the file in chunks of CHUNK_SIZE
+    // Add the newly read chunk to the chunks vector
     loop {
         let mut buffer = vec![0; CHUNK_SIZE-ENCRYPTION_OVERHEAD]; // Create a buffer for the current chunk
         let bytes_read = file.read(&mut buffer)?; // Read bytes into the buffer
@@ -153,9 +161,11 @@ pub async fn chunk_file(file_path: String) -> io::Result<Vec<Vec<u8>>> {
         chunks.push(buffer);
     }
 
+    // return the chunks vector containing the file
     Ok(chunks)
 }
 
+/// Create a buffer writer to create a new file if it doesn't already exists
 pub fn create_file_bufwriter(output_path: &Path) -> BufWriter<File> {
     let file = OpenOptions::new()
         .create(true)

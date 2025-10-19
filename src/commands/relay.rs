@@ -5,6 +5,7 @@ use crate::relay_utils::{ConnectionManager, Message, relay_manager, relay_new_co
 use log::{debug, info};
 
 pub async fn run(port: u16) -> Result<(), Box<dyn Error>> {
+    // Bind the server to 0.0.0.0:<port> - default is 8080
     let bind_addr = format!("0.0.0.0:{}", port);
     debug!("Attempting to bind to {}", bind_addr);
     
