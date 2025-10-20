@@ -74,7 +74,7 @@ pub async fn run(file_path: &str) -> Result<(), Box<dyn Error>> {
     let write_channel = send_metadata(write_half, &file_metadata).await?;
 
     // initialize send/receive channel
-    let (tx, rx) = mpsc::channel::<Vec<u8>>(100);
+    let (tx, rx) = mpsc::channel::<Vec<u8>>(1024);
     
     debug!("Spawning chunk and encrypt task");
     let chunk_handle = tokio::spawn(chunk_and_encrypt_task(
