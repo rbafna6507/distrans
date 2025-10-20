@@ -74,7 +74,7 @@ pub async fn run(file_path: &str) -> Result<(), Box<dyn Error>> {
     let write_channel = send_metadata(write_half, &file_metadata).await?;
 
     // initialize send/receive channel
-    let (tx, rx) = mpsc::channel::<Vec<u8>>(100);
+    let (tx, rx) = mpsc::channel::<Vec<u8>>(1024);
     
     debug!("Spawning chunk and encrypt task");
     let chunk_handle = tokio::spawn(chunk_and_encrypt_task(
@@ -89,8 +89,18 @@ pub async fn run(file_path: &str) -> Result<(), Box<dyn Error>> {
     
     // wait for both tasks to complete
     debug!("Waiting for tasks to complete");
+    
+    // Wait for send task first - if network fails, we know immediately
+    let send_result = send_handle.await?;
+    if let Err(e) = send_result {
+        debug!("Send task failed: {}", e);
+        // Send task failed, chunk task will error when trying to send
+        let _ = chunk_handle.await; // Don't propagate chunk error, send error is the real issue
+        return Err(format!("Network error: {}", e).into());
+    }
+    
+    // Now wait for chunk task
     chunk_handle.await?.map_err(|e| format!("Chunk task error: {}", e))?;
-    send_handle.await?;
 
     debug!("Transfer completed successfully");
     Ok(())
@@ -125,7 +135,11 @@ async fn chunk_and_encrypt_task(
         debug!("Encrypted chunk {}: {} bytes", chunk_index, encrypted.len());
         
         // Send to channel
-        tx.send(encrypted).await.map_err(|e| e.to_string())?;
+        if let Err(_) = tx.send(encrypted).await {
+            let error_msg = format!("Failed to send chunk {} to network task (channel closed). This usually means the network connection was lost.", chunk_index);
+            debug!("{}", error_msg);
+            return Err(error_msg);
+        }
         
         chunk_index += 1;
         bar.inc(1);
@@ -139,18 +153,46 @@ async fn chunk_and_encrypt_task(
 async fn send_task(
     mut write_socket: OwnedWriteHalf,
     mut rx: mpsc::Receiver<Vec<u8>>,
-) {
+) -> Result<(), String> {
     debug!("Starting send task");
     let mut chunk_count = 0;
     
     while let Some(encrypted_chunk) = rx.recv().await {
         let chunk_size = encrypted_chunk.len() as u32;
         debug!("Sending chunk {}: {} bytes", chunk_count, chunk_size);
-        let _ = write_socket.write_u32(chunk_size).await;
-        let _ = write_socket.write_all(&encrypted_chunk).await;
+        
+        // Sanity check - encrypted chunks should be reasonable size
+        if chunk_size > 10_000_000 {  // 10 MB max per chunk
+            let error_msg = format!("Chunk {} has invalid size: {} bytes (too large)", chunk_count, chunk_size);
+            debug!("{}", error_msg);
+            return Err(error_msg);
+        }
+        
+        // Try to write chunk size
+        if let Err(e) = write_socket.write_u32(chunk_size).await {
+            let error_msg = format!("Network error writing chunk {} size: {}. The receiver may have disconnected.", chunk_count, e);
+            debug!("{}", error_msg);
+            return Err(error_msg);
+        }
+        
+        // Try to write chunk data
+        if let Err(e) = write_socket.write_all(&encrypted_chunk).await {
+            let error_msg = format!("Network error writing chunk {} data: {}. The receiver may have disconnected.", chunk_count, e);
+            debug!("{}", error_msg);
+            return Err(error_msg);
+        }
+        
+        // Flush to ensure data is sent immediately (critical for relay connections)
+        if let Err(e) = write_socket.flush().await {
+            let error_msg = format!("Network error flushing chunk {}: {}. The receiver may have disconnected.", chunk_count, e);
+            debug!("{}", error_msg);
+            return Err(error_msg);
+        }
+        
         chunk_count += 1;
     }
     
     debug!("Sent {} chunks total", chunk_count);
     println!("Transfer Complete!");
+    Ok(())
 }
