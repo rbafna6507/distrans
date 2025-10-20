@@ -90,7 +90,7 @@ pub async fn run(file_path: &str) -> Result<(), Box<dyn Error>> {
     // wait for both tasks to complete
     debug!("Waiting for tasks to complete");
     chunk_handle.await?.map_err(|e| format!("Chunk task error: {}", e))?;
-    send_handle.await?;
+    send_handle.await?.map_err(|e| format!("Send task error: {}", e))?;
 
     debug!("Transfer completed successfully");
     Ok(())
@@ -139,18 +139,23 @@ async fn chunk_and_encrypt_task(
 async fn send_task(
     mut write_socket: OwnedWriteHalf,
     mut rx: mpsc::Receiver<Vec<u8>>,
-) {
+) -> Result<(), String> {
     debug!("Starting send task");
     let mut chunk_count = 0;
     
     while let Some(encrypted_chunk) = rx.recv().await {
         let chunk_size = encrypted_chunk.len() as u32;
         debug!("Sending chunk {}: {} bytes", chunk_count, chunk_size);
-        let _ = write_socket.write_u32(chunk_size).await;
-        let _ = write_socket.write_all(&encrypted_chunk).await;
+        
+        write_socket.write_u32(chunk_size).await
+            .map_err(|e| format!("Failed to write chunk size: {}", e))?;
+        write_socket.write_all(&encrypted_chunk).await
+            .map_err(|e| format!("Failed to write chunk data: {}", e))?;
+        
         chunk_count += 1;
     }
     
     debug!("Sent {} chunks total", chunk_count);
     println!("Transfer Complete!");
+    Ok(())
 }
