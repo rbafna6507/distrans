@@ -7,7 +7,7 @@ use tokio::net::TcpStream;
 use tokio::io::AsyncWriteExt;
 use tokio::sync::mpsc;
 use tokio::time::Duration;
-use indicatif::ProgressBar;
+use indicatif::{ProgressBar, ProgressStyle};
 use log::{debug};
 
 use crate::networking::{establish_connection, perform_pake, send_metadata};
@@ -34,7 +34,7 @@ pub async fn run(file_path: &str) -> Result<(), Box<dyn Error>> {
 
     // Generates a six digit random key to share with the Receiver
     let shared_key = generate_shared_key();
-    println!("Shared key (copied to clipboard): {}", shared_key);
+    println!("Shared key (copied to clipboard): \x1b[4m\x1b[1m{}\x1b[0m", shared_key);
 
     // Init message to send to the relay
     // Indicates is_sender status, desired room to join, and local ip address
@@ -136,6 +136,9 @@ async fn chunk_and_encrypt_task(
     // Initialize chunk_index to prepend to chunk as a nonce for encryption/decryption
     debug!("Starting chunk and encrypt task, total size: {} bytes", total_size);
     let bar = ProgressBar::new(total_size / 1024);
+    bar.set_style(ProgressStyle::default_bar()
+    .template("[{elapsed_precise}] [{bar:40.black}] {pos}/{len} KB ({eta}) {msg}")
+    .unwrap());
     let mut chunk_index: u64 = 0;
     
     // For each chunk in the file, read it into a buffer of size ENCRYPTION_ADJUSTED_CHUNK_SIZE

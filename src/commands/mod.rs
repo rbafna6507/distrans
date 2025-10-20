@@ -1,6 +1,6 @@
 //! # Commands Module
 //!
-//! This module contains the three main command handlers for distrans:
+//! This module contains the three main command handlers for rift:
 //!
 //! ## `send`
 //! Handles sending files or folders to a receiver:

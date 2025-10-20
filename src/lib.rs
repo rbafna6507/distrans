@@ -1,4 +1,4 @@
-//! # Distrans - Distributed File Transfer
+//! # Rift - Distributed File Transfer
 //!
 //! A secure peer-to-peer file transfer application with relay fallback.
 //!
@@ -72,5 +72,5 @@ pub const ENCRYPTION_ADJUSTED_CHUNK_SIZE: usize = CHUNK_SIZE - ENCRYPTION_OVERHE
 /// - Exchanges peer address information for P2P connection attempts
 /// - Proxies data if P2P connection fails
 ///
-/// Users can override this by running their own relay with `distrans relay`
+/// Users can override this by running their own relay with `rift relay`
 pub const RELAY_ADDR: &str = "45.55.102.56:8080";

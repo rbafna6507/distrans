@@ -122,10 +122,7 @@ async fn receive_and_decrypt_task(
 
     let bar = ProgressBar::new(total_size / 1024);
     bar.set_style(ProgressStyle::default_bar()
-        .template("{spinner:.black} [{elapsed_precise}] [{bar:40.cyan/blue}] {pos}/{len} KB ({eta}) {msg}")
-        .unwrap());
-    bar.set_style(ProgressStyle::default_bar()
-        .template("{spinner:.black} [{elapsed_precise}] [{bar:40.cyan/blue}] {pos}/{len} KB ({eta}) {msg}")
+        .template("[{elapsed_precise}] [{bar:40.black}] {pos}/{len} KB ({eta}) {msg}")
         .unwrap());
     let mut chunk_index: u64 = 0;
     

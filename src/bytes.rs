@@ -314,7 +314,7 @@ mod tests {
         use std::fs;
 
         // Create a temporary directory
-        let temp_dir = std::env::temp_dir().join(format!("test_distrans_{}", std::process::id()));
+        let temp_dir = std::env::temp_dir().join(format!("test_rift_{}", std::process::id()));
         fs::create_dir_all(&temp_dir).unwrap();
 
         // Compress the empty folder

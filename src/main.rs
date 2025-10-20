@@ -2,7 +2,7 @@ use clap::{Parser, Subcommand};
 use std::error::Error;
 
 #[derive(Parser)]
-#[command(name = "distrans")]
+#[command(name = "rift")]
 #[command(about = "Distributed file transfer tool", long_about = None)]
 #[command(version)]
 struct Cli {
@@ -52,13 +52,13 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
     match cli.command {
         Commands::Send { file_path } => {
-            distrans::commands::send::run(&file_path).await?;
+            rift::commands::send::run(&file_path).await?;
         }
         Commands::Receive { key } => {
-            distrans::commands::receive::run(key).await?;
+            rift::commands::receive::run(key).await?;
         }
         Commands::Relay { port } => {
-            distrans::commands::relay::run(port).await?;
+            rift::commands::relay::run(port).await?;
         }
     }
 
