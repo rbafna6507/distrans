@@ -89,8 +89,18 @@ pub async fn run(file_path: &str) -> Result<(), Box<dyn Error>> {
     
     // wait for both tasks to complete
     debug!("Waiting for tasks to complete");
+    
+    // Wait for send task first - if network fails, we know immediately
+    let send_result = send_handle.await?;
+    if let Err(e) = send_result {
+        debug!("Send task failed: {}", e);
+        // Send task failed, chunk task will error when trying to send
+        let _ = chunk_handle.await; // Don't propagate chunk error, send error is the real issue
+        return Err(format!("Network error: {}", e).into());
+    }
+    
+    // Now wait for chunk task
     chunk_handle.await?.map_err(|e| format!("Chunk task error: {}", e))?;
-    send_handle.await?.map_err(|e| format!("Send task error: {}", e))?;
 
     debug!("Transfer completed successfully");
     Ok(())
@@ -125,7 +135,11 @@ async fn chunk_and_encrypt_task(
         debug!("Encrypted chunk {}: {} bytes", chunk_index, encrypted.len());
         
         // Send to channel
-        tx.send(encrypted).await.map_err(|e| e.to_string())?;
+        if let Err(_) = tx.send(encrypted).await {
+            let error_msg = format!("Failed to send chunk {} to network task (channel closed). This usually means the network connection was lost.", chunk_index);
+            debug!("{}", error_msg);
+            return Err(error_msg);
+        }
         
         chunk_index += 1;
         bar.inc(1);
@@ -147,10 +161,19 @@ async fn send_task(
         let chunk_size = encrypted_chunk.len() as u32;
         debug!("Sending chunk {}: {} bytes", chunk_count, chunk_size);
         
-        write_socket.write_u32(chunk_size).await
-            .map_err(|e| format!("Failed to write chunk size: {}", e))?;
-        write_socket.write_all(&encrypted_chunk).await
-            .map_err(|e| format!("Failed to write chunk data: {}", e))?;
+        // Try to write chunk size
+        if let Err(e) = write_socket.write_u32(chunk_size).await {
+            let error_msg = format!("Network error writing chunk {} size: {}. The receiver may have disconnected.", chunk_count, e);
+            debug!("{}", error_msg);
+            return Err(error_msg);
+        }
+        
+        // Try to write chunk data
+        if let Err(e) = write_socket.write_all(&encrypted_chunk).await {
+            let error_msg = format!("Network error writing chunk {} data: {}. The receiver may have disconnected.", chunk_count, e);
+            debug!("{}", error_msg);
+            return Err(error_msg);
+        }
         
         chunk_count += 1;
     }
