@@ -101,10 +101,10 @@ pub fn encrypt_chunk(
     // Generate unique nonce from chunk index (first 8 bytes = index, rest = zeros)
     let mut nonce_bytes = [0u8; NONCE_SIZE];
     nonce_bytes[..8].copy_from_slice(&chunk_index.to_le_bytes());
-    let nonce = Nonce::from_slice(&nonce_bytes);
+    let nonce = Nonce::from(nonce_bytes);
     
     // Encrypt and authenticate the chunk
-    cipher.encrypt(nonce, chunk)
+    cipher.encrypt(&nonce, chunk)
 }
 
 /// Decrypt a chunk of data with ChaCha20-Poly1305 authenticated encryption.
@@ -131,11 +131,11 @@ pub fn decrypt_chunk(
     // Reconstruct the same nonce used during encryption
     let mut nonce_bytes = [0u8; NONCE_SIZE];
     nonce_bytes[..8].copy_from_slice(&chunk_index.to_le_bytes());
-    let nonce = Nonce::from_slice(&nonce_bytes);
+    let nonce = Nonce::from(nonce_bytes);
 
     // Decrypt and verify authentication tag
     // If the tag is invalid, it will return an error, preventing tampered data from being processed
-    cipher.decrypt(nonce, encrypted_chunk)
+    cipher.decrypt(&nonce, encrypted_chunk)
 }
 
 #[cfg(test)]
