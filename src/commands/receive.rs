@@ -177,7 +177,7 @@ async fn write_file(
     mut rx: mpsc::Receiver<Vec<u8>>,
     metadata: FileMetadata,
 ) -> Result<(), String> {
-    let output_filename = format!("new_{}", metadata.filename);
+    let output_filename = metadata.filename;
     let output_path = Path::new(&output_filename);
     debug!("Writing to file: {}", output_filename);
     
