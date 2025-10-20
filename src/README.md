@@ -1,6 +1,6 @@
-# Distrans Source Code Structure
+# Rift Source Code Structure
 
-This document provides an overview of the `distrans` codebase organization and module responsibilities.
+This document provides an overview of the `rift` codebase organization and module responsibilities.
 
 ## Directory Structure
 

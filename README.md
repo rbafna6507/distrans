@@ -1,8 +1,44 @@
 # rift - Distributed File Transfer
 
+
 A secure, peer-to-peer file transfer tool with relay fallback support.
 
+## Prerequisites
+
+Before building and using rift, ensure you have the following installed:
+
+### Rust and Cargo
+
+rift requires Rust 1.89.0 or later.
+
+**Check if you have Rust installed:**
+```bash
+rustc --version
+cargo --version
+```
+
+**Install Rust:**
+
+If you don't have Rust installed, you can install it using [rustup](https://rustup.rs/):
+
+```bash
+# On macOS, Linux, or Unix-like OS
+curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
+```
+
 ## Installation
+
+### Quick Install (Recommended)
+
+Run the installation script to build and optionally install globally:
+
+```bash
+./install.sh
+```
+
+The script will:
+1. Build the project in release mode
+2. Offer to install the binary to `/usr/local/bin` for global access
 
 ### Building from Source
 
@@ -10,21 +46,9 @@ A secure, peer-to-peer file transfer tool with relay fallback support.
 cargo build --release
 ```
 
-The binary will be available at `./target/release/rift`.Distributed File Transfer CLI
+The binary will be available at `./target/release/rift`.
 
-A secure, peer-to-peer file transfer tool with relay fallback support.
-
-## Installation
-
-### Building from Source
-
-```bash
-cargo build --release
-```
-
-The binary will be available at `./target/release/distrans`.
-
-### Install Globally (Optional)
+### Install Globally (Manual)
 
 ```bash
 # Copy to a directory in your PATH
@@ -60,10 +84,8 @@ When you run the send command:
 ### Receive a File or Folder
 
 ```bash
-# Receive (will prompt for key)
-rift receive
 
-# Receive with key provided
+# Receive with key (key required)
 rift receive 123456
 
 # Receive with verbose logging

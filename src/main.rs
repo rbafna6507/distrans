@@ -24,7 +24,7 @@ enum Commands {
     /// Receive a file or folder
     Receive {
         /// Optional 6-digit shared key (will prompt if not provided)
-        key: Option<u32>,
+        key: u32,
     },
     /// Run as a relay server
     Relay {

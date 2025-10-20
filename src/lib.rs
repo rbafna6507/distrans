@@ -23,24 +23,18 @@ pub mod utils;
 pub mod relay_utils;
 pub mod commands;
 
-// ============================================================================
-// Cryptographic Constants
-// ============================================================================
 
 /// Size of the encryption key in bytes.
 ///
 /// ChaCha20-Poly1305 uses a 256-bit (32-byte) key for symmetric encryption.
 pub const KEY_SIZE: usize = 32;
 
-/// Size of the nonce (number used once) in bytes for ChaCha20-Poly1305.
+/// Size of the nonce in bytes for ChaCha20-Poly1305.
 ///
 /// ChaCha20 uses a 96-bit (12-byte) nonce. We derive this from the chunk index
 /// (8 bytes) plus 4 bytes of zeros to ensure unique nonces for each chunk.
 pub const NONCE_SIZE: usize = 12;
 
-// ============================================================================
-// Chunking Constants
-// ============================================================================
 
 /// Size of each data chunk in bytes (before encryption).
 ///
@@ -52,25 +46,15 @@ pub const CHUNK_SIZE: usize = 1024;
 /// Size of the authentication tag added by ChaCha20-Poly1305 encryption.
 ///
 /// Poly1305 adds a 128-bit (16-byte) authentication tag to verify data integrity.
-/// This tag allows the receiver to detect any tampering or corruption of encrypted data.
 pub const ENCRYPTION_OVERHEAD: usize = 16;
 
 /// Maximum plaintext chunk size that can be encrypted without exceeding CHUNK_SIZE.
-///
+/// 
 /// Since encryption adds a 16-byte auth tag, we read chunks of (1024 - 16 = 1008) bytes,
 /// which become 1024 bytes after encryption. This ensures consistent encrypted chunk sizes.
 pub const ENCRYPTION_ADJUSTED_CHUNK_SIZE: usize = CHUNK_SIZE - ENCRYPTION_OVERHEAD;
 
-// ============================================================================
-// Network Constants
-// ============================================================================
 
 /// Default relay server address for coordinating peer connections.
-///
-/// This relay server:
-/// - Matches senders and receivers into "rooms" based on shared keys
-/// - Exchanges peer address information for P2P connection attempts
-/// - Proxies data if P2P connection fails
-///
 /// Users can override this by running their own relay with `rift relay`
 pub const RELAY_ADDR: &str = "45.55.102.56:8080";

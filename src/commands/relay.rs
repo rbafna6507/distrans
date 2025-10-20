@@ -16,7 +16,7 @@ use log::{debug, info};
 /// # Architecture
 /// - Main task: Accepts new TCP connections in a loop
 /// - Connection handler tasks: One per client, processes initial handshake
-/// - Manager task: Central coordinator that manages rooms and connection pairing
+/// - Manager task: Sends messages (eg. New Connection or AttemptP2P) through channel to coordinate room assignments and data forwarding 
 ///
 /// # Process Flow
 /// 1. Client connects and sends an Init message with room number and sender/receiver status

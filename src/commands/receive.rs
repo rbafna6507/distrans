@@ -5,13 +5,13 @@ use crate::cryptography::decrypt_chunk;
 use tokio::net::tcp::OwnedReadHalf;
 use tokio::net::TcpStream;
 use tokio::sync::mpsc;
-use crate::networking::{establish_connection, perform_pake, read_chunk_size, read_encrypted_chunk, receive_message_metadata};
+use crate::networking::{establish_connection, perform_pake, read_chunk_size, read_encrypted_chunk, receive_metadata};
 use crate::utils::{Init, FileMetadata};
-use crate::bytes::{create_file_bufwriter, get_shared_key, decompress_folder};
+use crate::bytes::{create_file_bufwriter, decompress_folder};
 use crate::RELAY_ADDR;
 use indicatif::{ProgressBar, ProgressStyle};
 use std::path::Path;
-use log::{debug, info};
+use log::{debug};
 
 /// Function handler to kickoff receiver logic:
 ///     - Read input (shared 6 digit key)
@@ -19,20 +19,11 @@ use log::{debug, info};
 ///     - Perform PAKE handshake to authenticate the sender
 ///     - Spawn an asynchronous task to read + decrypt incoming data chunks from TCP Socket
 ///     - Spawn an asynchronous task to construct/write folder/file - chunk by chunk as we read from TCP
-pub async fn run(key: Option<u32>) -> Result<(), Box<dyn Error>> {
+pub async fn run(key: u32) -> Result<(), Box<dyn Error>> {
     debug!("Starting receive command");
     
     // Get 6-digit room number from user or CLI arg
-    let shared_key = match key {
-        Some(k) => {
-            debug!("Using shared key from command line: {}", k);
-            k
-        }
-        None => {
-            info!("Prompting for shared key");
-            get_shared_key()?
-        }
-    };
+    let shared_key = key;
 
     debug!("Using shared key: {}, room: {}", shared_key, shared_key / 100);
 
@@ -59,7 +50,7 @@ pub async fn run(key: Option<u32>) -> Result<(), Box<dyn Error>> {
         perform_pake(write_socket, read_socket, shared_key).await?;
 
     debug!("Receiving metadata");
-    let (metadata, read_half) = receive_message_metadata(read_half).await?;
+    let (metadata, read_half) = receive_metadata(read_half).await?;
     debug!("Receiving {}: {} bytes", 
         if metadata.is_folder { "folder" } else { "file" },
         metadata.file_size
@@ -108,7 +99,7 @@ pub async fn run(key: Option<u32>) -> Result<(), Box<dyn Error>> {
 /// 5. Repeat until EOF (chunk_size read returns None)
 ///
 /// # Arguments
-/// * `read_half` - TCP read half for receiving data
+/// * `read_half` - TCP read half to read incoming data
 /// * `encryption_key` - The 32-byte decryption key from PAKE
 /// * `tx` - Channel for sending decrypted chunks to write task
 /// * `total_size` - Total file size in bytes (for progress bar)
@@ -177,7 +168,7 @@ async fn write_file(
     mut rx: mpsc::Receiver<Vec<u8>>,
     metadata: FileMetadata,
 ) -> Result<(), String> {
-    let output_filename = metadata.filename;
+    let output_filename = "new_".to_owned() + &metadata.filename;
     let output_path = Path::new(&output_filename);
     debug!("Writing to file: {}", output_filename);
     

@@ -16,7 +16,7 @@ use crate::bytes::{generate_shared_key, compress_folder, generate_metadata, read
 use crate::cryptography::encrypt_chunk;
 use crate::RELAY_ADDR;
 
-// Type alias for a readable data source (zip archive or file)
+// Type alias for a readable data source (eg. zip archive or file)
 type DataSource = Box<dyn Read + Send>;
 
 /// Function handler to kickoff sender logic:
