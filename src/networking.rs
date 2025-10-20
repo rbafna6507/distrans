@@ -178,27 +178,22 @@ pub async fn perform_pake(
 pub async fn send_metadata (
     mut write_half: OwnedWriteHalf,
     metadata: &FileMetadata) -> Result<OwnedWriteHalf, Box<dyn Error>> {
-    // Send metadata
+    // Send metadata with length prefix (same pattern as PAKE)
     let encoded_metadata: Vec<u8> = bincode::serialize(&metadata)?;
+    let len = encoded_metadata.len() as u32;
+    write_half.write_u32(len).await?;
     write_half.write_all(&encoded_metadata).await?;
+    write_half.flush().await?;
     
     Ok(write_half)
 }
 
 pub async fn receive_message_metadata(mut read_half: OwnedReadHalf) -> Result<(FileMetadata, OwnedReadHalf), Box<dyn Error>> {
-    let mut buffer = vec![0; 1024];
-    
-    let metadata = match read_half.read(&mut buffer).await {
-        Ok(0) => return Err("Relay server closed connection".into()),
-        Ok(n) => {
-            let metadata: FileMetadata = bincode::deserialize(&buffer[..n])?;
-            metadata
-        }
-        Err(e) => {
-            println!("error reading message metadata");
-            return Err(e.into())
-        }
-    };
+    // Read metadata with length prefix (same pattern as PAKE)
+    let len = read_half.read_u32().await?;
+    let mut buffer = vec![0; len as usize];
+    read_half.read_exact(&mut buffer).await?;
+    let metadata: FileMetadata = bincode::deserialize(&buffer)?;
 
     Ok((metadata, read_half))
 }

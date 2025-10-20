@@ -161,6 +161,13 @@ async fn send_task(
         let chunk_size = encrypted_chunk.len() as u32;
         debug!("Sending chunk {}: {} bytes", chunk_count, chunk_size);
         
+        // Sanity check - encrypted chunks should be reasonable size
+        if chunk_size > 10_000_000 {  // 10 MB max per chunk
+            let error_msg = format!("Chunk {} has invalid size: {} bytes (too large)", chunk_count, chunk_size);
+            debug!("{}", error_msg);
+            return Err(error_msg);
+        }
+        
         // Try to write chunk size
         if let Err(e) = write_socket.write_u32(chunk_size).await {
             let error_msg = format!("Network error writing chunk {} size: {}. The receiver may have disconnected.", chunk_count, e);
@@ -171,6 +178,13 @@ async fn send_task(
         // Try to write chunk data
         if let Err(e) = write_socket.write_all(&encrypted_chunk).await {
             let error_msg = format!("Network error writing chunk {} data: {}. The receiver may have disconnected.", chunk_count, e);
+            debug!("{}", error_msg);
+            return Err(error_msg);
+        }
+        
+        // Flush to ensure data is sent immediately (critical for relay connections)
+        if let Err(e) = write_socket.flush().await {
+            let error_msg = format!("Network error flushing chunk {}: {}. The receiver may have disconnected.", chunk_count, e);
             debug!("{}", error_msg);
             return Err(error_msg);
         }
