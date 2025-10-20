@@ -112,11 +112,9 @@ pub fn compress_folder(folder_path: &Path) -> Result<Vec<u8>, Box<dyn Error>> {
         }
         
         // Get relative path from the folder being compressed
-        // Get relative path from the folder being compressed
         let relative_path = path.strip_prefix(folder_path)?;
         let name = relative_path.to_str().ok_or("Invalid path")?;
         
-        // Add file or folder to the zip archive
         // Add file or folder to the zip archive
         if path.is_file() {
             debug!("Adding file: {}", name);
@@ -152,29 +150,23 @@ pub fn decompress_folder(zip_data: &[u8], output_path: &Path) -> Result<(), Box<
     let mut archive = ZipArchive::new(reader)?;
     
     debug!("Extracting {} files/folders...", archive.len());
-    debug!("Extracting {} files/folders...", archive.len());
     
     // For each entry in the Zip Archive
     for i in 0..archive.len() {
-        // Get filename and create output path
         // Get filename and create output path
         let mut file = archive.by_index(i)?;
         let outpath = output_path.join(file.name());
         
         // Extract (create) directory and files
-        // Extract (create) directory and files
         if file.name().ends_with('/') {
-            // It's a directory
-            debug!("Creating directory: {:?}", outpath);
             debug!("Creating directory: {:?}", outpath);
             fs::create_dir_all(&outpath)?;
         } else {
-            // It's a file
-            debug!("Extracting file: {:?}", outpath);
             debug!("Extracting file: {:?}", outpath);
             if let Some(parent) = outpath.parent() {
                 fs::create_dir_all(parent)?;
             }
+
             let mut outfile = File::create(&outpath)?;
             io::copy(&mut file, &mut outfile)?;
         }
@@ -189,7 +181,6 @@ pub fn decompress_folder(zip_data: &[u8], output_path: &Path) -> Result<(), Box<
         }
     }
     
-    debug!("Extraction complete!");
     debug!("Extraction complete!");
     Ok(())
 }
