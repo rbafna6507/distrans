@@ -168,7 +168,7 @@ async fn write_file(
     mut rx: mpsc::Receiver<Vec<u8>>,
     metadata: FileMetadata,
 ) -> Result<(), String> {
-    let output_filename = "new_".to_owned() + &metadata.filename;
+    let output_filename = metadata.filename;
     let output_path = Path::new(&output_filename);
     debug!("Writing to file: {}", output_filename);
     
@@ -216,7 +216,7 @@ async fn write_folder(
     debug!("Collected {} bytes of zip data", zip_data.len());
 
     // Create correctly named output directory
-    let output_folder = format!("new_{}", metadata.filename);
+    let output_folder = metadata.filename;
     let output_path = Path::new(&output_folder);
     
     // Decompress folder contents into the output directory

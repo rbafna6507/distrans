@@ -6,7 +6,7 @@ This document provides an overview of the `rift` codebase organization and modul
 
 ```
 src/
-├── lib.rs                 # Library root with constants and module declarations
+├── lib.rs                # Library root with constants and module declarations
 ├── main.rs               # CLI entry point
 ├── bytes.rs              # File I/O, chunking, compression utilities
 ├── cryptography.rs       # Encryption/decryption and key exchange
