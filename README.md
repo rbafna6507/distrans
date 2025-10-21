@@ -208,6 +208,33 @@ Connected to relay server at 45.55.102.56:8080
 ...
 ```
 
+## Benchmarks
+```
+=========================================
+Rift Benchmark Results
+=========================================
+
+Test Name                      |            Size |           Time |      Throughput | Status
+------------------------------------------------------------------------------------------------------------------------
+folder_100x1kb                 |            400K |        0.862s |         0.11 MB/s | ✓ SUCCESS
+folder_50x1mb                  |             50M |        1.830s |        27.32 MB/s | ✓ SUCCESS
+folder_10x10mb                 |            100M |        2.905s |        34.41 MB/s | ✓ SUCCESS
+folder_mixed                   |            6.0M |        0.860s |         6.99 MB/s | ✓ SUCCESS
+10kb                           |             12K |        0.833s |         0.01 MB/s | ✓ SUCCESS
+100kb                          |            100K |        0.724s |         0.13 MB/s | ✓ SUCCESS
+1mb_text                       |            1.0M |        0.733s |         1.36 MB/s | ✓ SUCCESS
+1mb_binary                     |            1.0M |        0.737s |         1.35 MB/s | ✓ SUCCESS
+10mb_text                      |             10M |        0.789s |        12.68 MB/s | ✓ SUCCESS
+10mb_binary                    |             10M |        0.790s |        12.66 MB/s | ✓ SUCCESS
+100mb_text                     |            100M |        1.336s |        74.85 MB/s | ✓ SUCCESS
+100mb_binary                   |            100M |        1.345s |        74.37 MB/s | ✓ SUCCESS
+500mb                          |            500M |        3.681s |       135.84 MB/s | ✓ SUCCESS
+1gb_text                       |            1.0G |        6.718s |       152.43 MB/s | ✓ SUCCESS
+1gb_binary                     |            1.0G |        6.545s |       156.44 MB/s | ✓ SUCCESS
+5gb                            |            5.0G |       30.831s |       166.06 MB/s | ✓ SUCCESS
+10gb                           |            7.7G |       46.751s |       169.38 MB/s | ✓ SUCCESS
+```
+
 ## Features
 
 - **Secure Transfer**: Uses PAKE (Password Authenticated Key Exchange) and ChaCha20-Poly1305 encryption

@@ -2,6 +2,7 @@ use std::error::Error;
 use std::io::{Read, Cursor};
 use std::fs::{File, metadata};
 use std::path::Path;
+use colored::Colorize;
 use tokio::net::tcp::OwnedWriteHalf;
 use tokio::net::TcpStream;
 use tokio::io::AsyncWriteExt;
@@ -34,7 +35,7 @@ pub async fn run(file_path: &str) -> Result<(), Box<dyn Error>> {
 
     // Generates a six digit random key to share with the Receiver
     let shared_key = generate_shared_key();
-    println!("Shared key (copied to clipboard): \x1b[4m\x1b[1m{}\x1b[0m", shared_key);
+    println!("Shared key (copied to clipboard): {}", shared_key.to_string().bold());
 
     // Init message to send to the relay
     // Indicates is_sender status, desired room to join, and local ip address

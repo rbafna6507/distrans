@@ -2,3 +2,4 @@
 *.mp4
 *.txt
 .DS_Store
+/benchmarks

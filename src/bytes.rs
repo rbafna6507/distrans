@@ -60,15 +60,22 @@ pub fn generate_shared_key() -> u32 {
 /// Generate FileMetadata struct containing file/folder information.
 ///
 /// # Arguments
-/// * `filename` - Name of the file or folder
+/// * `filename` - Path to the file or folder (will extract just the filename)
 /// * `size` - Size in bytes (for folders, this is the compressed zip size)
 /// * `is_folder` - True if sending a folder, false if sending a file
 ///
 /// # Returns
 /// FileMetadata struct to be sent to the receiver
 pub fn generate_metadata(filename: String, size: u64, is_folder: bool) -> FileMetadata {
+    // Extract just the filename from the full path
+    let filename_only = Path::new(&filename)
+        .file_name()
+        .and_then(|name| name.to_str())
+        .unwrap_or(&filename)
+        .to_string();
+    
     FileMetadata {
-        filename,
+        filename: filename_only,
         file_size: size,
         is_folder,
     }
